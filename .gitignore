@@ -33,6 +33,10 @@ env/
 *.token
 hf_token*
 
+# Run-time logs (Tee-Object captures)
+generate_log.txt
+*.log
+
 # Data — raw downloads and intermediate artifacts are NEVER committed
 data/raw/
 data/interim/

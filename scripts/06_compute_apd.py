@@ -10,7 +10,7 @@ import pandas as pd
 from apd.apd.indicator import apd, compute_occupation_metrics
 from apd.config import settings
 from apd.panel.build import algorithmic_distribution
-from apd.prompts.grid import POC_OCCUPATIONS
+from apd.prompts.grid import POC_COUNTRY, POC_LANGUAGE, POC_MODEL, POC_OCCUPATIONS
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("06_apd")
@@ -43,9 +43,9 @@ def main() -> int:
         results.append(m)
         rows.append(
             {
-                "country": "CO",
-                "language": "en",
-                "model": "runwayml/stable-diffusion-v1-5",
+                "country": POC_COUNTRY,
+                "language": POC_LANGUAGE,
+                "model": POC_MODEL,
                 "occupation": occ,
                 "D": m.D,
                 "delta": m.delta,
@@ -58,10 +58,13 @@ def main() -> int:
     table.to_csv(OUT, index=False)
     # Persist the scalar APD alongside the per-occupation table.
     (settings.results_tables / "apd_poc_aggregate.csv").write_text(
-        f"country,language,model,APD\nCO,en,runwayml/stable-diffusion-v1-5,{apd_value:.6f}\n",
+        f"country,language,model,APD\n{POC_COUNTRY},{POC_LANGUAGE},{POC_MODEL},{apd_value:.6f}\n",
         encoding="utf-8",
     )
-    log.info("Wrote %s (%d rows). APD(CO, en, SD1.5) = %.3f", OUT, len(table), apd_value)
+    log.info(
+        "Wrote %s (%d rows). APD(%s, %s, %s) = %.3f",
+        OUT, len(table), POC_COUNTRY, POC_LANGUAGE, POC_MODEL, apd_value,
+    )
     log.info("APD = 0 means no directional sedimentation; <0 = model lightens high-status occupations.")
     return 0
 

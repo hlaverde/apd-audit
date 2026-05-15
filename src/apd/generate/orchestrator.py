@@ -22,6 +22,7 @@ from apd.config import settings
 from apd.prompts.grid import PromptCell
 
 from .hf_backend import GenerationResult, HFBackend, HFGenerationError
+from .pollinations_backend import PollinationsBackend
 
 logger = logging.getLogger(__name__)
 
@@ -40,21 +41,37 @@ def image_path(cell: PromptCell, base_dir: Path) -> Path:
 def select_backend(model: str, *, prefer_local: bool = False) -> Backend:
     """Pick a backend.
 
-    If ``HF_TOKEN`` is set and ``prefer_local`` is False, returns ``HFBackend``.
-    Otherwise tries to construct a ``LocalBackend`` from the ``ml`` extras.
-    """
-    if not prefer_local and settings.hf_token:
-        return HFBackend(model=model)
-    # Lazy import — local backend pulls torch / diffusers from the ``ml``
-    # extras which we don't install by default.
-    from .local_backend import LocalBackend, is_available  # noqa: WPS433
+    Order of preference (per DECISIONS.md D-013):
 
-    if not is_available():
-        raise HFGenerationError(
-            "Neither HF_TOKEN nor the local 'ml' extras are available. "
-            "Either set HF_TOKEN in .env or run `uv sync --extra ml`.",
-        )
-    return LocalBackend(model=model)
+    1. **Pollinations.ai** — public, no-token, no-quota relay over the
+       open-weights image models named in the proposal (FLUX, etc.).
+       Used for the POC because HF Inference Providers free tier no
+       longer covers image models for non-Pro accounts.
+    2. **HF Inference** — only when the caller passes an ``hf-`` prefixed
+       model identifier explicitly (kept available for the day HF
+       re-enables free image inference).
+    3. **Local diffusers** — the network-free fallback, requires the
+       ``ml`` optional extras.
+    """
+    if prefer_local:
+        from .local_backend import LocalBackend, is_available  # noqa: WPS433
+
+        if not is_available():
+            raise HFGenerationError(
+                "Local 'ml' extras not installed. Run `uv sync --extra ml`.",
+            )
+        return LocalBackend(model=model)
+
+    # Map "pollinations/<id>" model identifiers to the Pollinations backend.
+    if model.startswith("pollinations/"):
+        return PollinationsBackend(model=model.split("/", 1)[1])
+
+    # If the model looks like an HF repo path AND we have a token, try HF.
+    if "/" in model and settings.hf_token:
+        return HFBackend(model=model)
+
+    # Default for the POC: Pollinations, plain FLUX.
+    return PollinationsBackend(model="flux")
 
 
 def generate_poc(

@@ -19,7 +19,11 @@ from apd.config import settings
 POC_OCCUPATIONS: tuple[str, ...] = ("CEO", "nurse", "domestic worker")
 POC_LANGUAGE: str = "en"
 POC_COUNTRY: str = "CO"
-POC_MODEL: str = "runwayml/stable-diffusion-v1-5"
+# Pollinations.ai relays FLUX.1 schnell open-weights under the bare model
+# identifier ``flux``; the ``pollinations/`` prefix tells the orchestrator
+# to route through PollinationsBackend instead of HF. See DECISIONS.md
+# D-011 / D-013.
+POC_MODEL: str = "pollinations/flux"
 POC_IMAGES_PER_CELL: int = 10
 
 

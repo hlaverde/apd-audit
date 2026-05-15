@@ -19,7 +19,10 @@ from apd.config import settings
 
 logger = logging.getLogger(__name__)
 
-API_URL = "https://api-inference.huggingface.co/models/{model}"
+# The legacy ``api-inference.huggingface.co`` endpoint was retired in 2025.
+# The current free path goes through the Inference Providers router; for
+# the open-weights ``hf-inference`` provider the URL pattern is below.
+API_URL = "https://router.huggingface.co/hf-inference/models/{model}"
 DEFAULT_TIMEOUT_S = 180
 MAX_RETRIES = 6
 

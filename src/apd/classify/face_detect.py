@@ -67,13 +67,32 @@ class FaceResult:
     cropped_bgr: np.ndarray | None  # cropped face patch in BGR, or None
 
 
+def _read_image_unicode_safe(image_path: Path) -> np.ndarray | None:
+    """Read ``image_path`` into a BGR ndarray, tolerating non-ASCII paths.
+
+    OpenCV's ``cv2.imread`` cannot open paths containing non-ASCII characters
+    on Windows because it uses ``fopen()`` with the system code page. We
+    sidestep that by reading the bytes with Python's I/O (which is
+    fully Unicode-aware) and decoding through ``cv2.imdecode``.
+    """
+    try:
+        with open(image_path, "rb") as fh:
+            buf = fh.read()
+    except OSError:
+        return None
+    if not buf:
+        return None
+    array = np.frombuffer(buf, dtype=np.uint8)
+    return cv2.imdecode(array, cv2.IMREAD_COLOR)
+
+
 def detect_face(image_path: Path) -> FaceResult:
     """Detect a face in ``image_path`` and return the largest detection.
 
     Returns ``FaceResult(False, 0, None, None)`` if the image cannot be read
     or no face passes the minimum-area filter.
     """
-    bgr = cv2.imread(str(image_path))
+    bgr = _read_image_unicode_safe(image_path)
     if bgr is None:
         return FaceResult(False, 0, None, None)
 

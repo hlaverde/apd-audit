@@ -93,6 +93,77 @@ stages whose output already exists *and* is newer than its inputs.
 **Rationale.** Required by the editorial replicability claim and by the POC
 acceptance criterion that `make all-poc` re-runs cleanly.
 
+### D-013: Pollinations.ai as the POC image-generation relay
+
+**Decision.** The POC generates images through **Pollinations.ai**
+(`https://image.pollinations.ai/prompt/...`), with the model parameter
+`flux` (which on Pollinations is FLUX.1 schnell open weights). The
+orchestrator's `select_backend` defaults to `PollinationsBackend` for
+the POC model identifier `pollinations/flux`.
+**Rationale.** During the bootstrap we discovered that:
+
+* The legacy HF Inference API (`api-inference.huggingface.co`) was
+  retired in 2025 — every probe returns 404.
+* The new HF Inference Providers router
+  (`router.huggingface.co/hf-inference`) **does** serve open-weights
+  image models, but the free tier is essentially $0 of credit for a
+  non-Pro, ``canPay=False`` account: a single test image went through;
+  the second request returned **402 Payment Required**.
+* Pollinations.ai is a public, free, no-token relay over the same
+  FLUX open weights named in the proposal §4.1. No registration,
+  no quota observed in testing, ~1–2 s per 512×512 image.
+
+This keeps the **zero-cost constraint** intact and uses a model that is
+already in the proposal's auditable list (FLUX.1 schnell, Apache 2.0).
+The relay is explicitly documented as a third-party service; the
+production run will choose between (a) staying on Pollinations,
+(b) downloading the FLUX-schnell weights to a Colab/Kaggle notebook,
+or (c) configuring a local `diffusers` install. That choice belongs in
+DESIGN.md.
+
+**Audit trail.** The Pollinations request signature
+(model, seed, width, height) is recorded in `images/poc/metadata.parquet`
+for every cell, so any reader can reproduce the exact prompt-to-image
+mapping.
+
+### D-012: Local diffusers + sd-turbo (deferred fallback, not active)
+
+**Decision.** The `LocalBackend` is kept implemented and wired through
+the orchestrator (`prefer_local=True`), but is **not** the default for
+the POC. It remains the documented hard fallback if Pollinations
+becomes unavailable.
+**Rationale.** Pollinations works today and is dramatically faster than
+CPU-only diffusers. We don't pay the install/download cost of the `ml`
+extras (~500 MB of torch + diffusers) until we genuinely need them.
+
+### D-011: Generative model for the POC (FLUX.1-schnell instead of SD 1.5)
+
+**Decision.** The POC uses **FLUX.1-schnell** (`black-forest-labs/FLUX.1-schnell`)
+on the Hugging Face free Inference Providers router
+(`https://router.huggingface.co/hf-inference/models/...`), not Stable
+Diffusion 1.5.
+**Rationale.** During 2025 Hugging Face migrated the free Inference API
+to the new Inference Providers router and de-listed many older models
+from the free `hf-inference` provider. Probing the live API today returns:
+
+| Model | Free `hf-inference`? |
+|---|---|
+| `runwayml/stable-diffusion-v1-5` | **400 — Model not supported by provider hf-inference** |
+| `stabilityai/stable-diffusion-2-1` | **400 — Model not supported** |
+| `stabilityai/stable-diffusion-xl-base-1.0` | **410 — deprecated** |
+| `black-forest-labs/FLUX.1-schnell` | **200 — works, ~15 s / 1024×1024 image** |
+
+FLUX.1-schnell is in the proposal's open-weights list (§4.1, row 5),
+Apache-2.0 licensed, and produces 1024×1024 images in ~4 denoising steps.
+Operationally it is the obvious POC choice. The main study can keep SD 1.5
+in scope by routing it through a local `diffusers` install (the `ml`
+extras), once the user authorises the ~3 GB weight download.
+
+**Update to plan.** The proposal's plan to audit *eight* open-weights
+models requires re-confirming which ones the free Inference Providers
+router still accepts; this is a Step-3 (`DESIGN.md`) concern, not a POC
+blocker.
+
 ### D-010: Face detector for the POC (OpenCV Haar instead of MediaPipe)
 
 **Decision.** `src/apd/classify/face_detect.py` runs OpenCV's bundled Haar

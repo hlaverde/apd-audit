@@ -213,6 +213,34 @@ The labelling round happens 4 weeks before manuscript submission.
   used as the validation reference).
 * Timing 4 weeks pre-submission leaves room for re-labelling if κ < 0.6.
 
+### D-023: FairFace integration deferred to second milestone
+
+**Decision.** FairFace (gender + age + race controls, proposal §4.3) is
+**deferred** to a second integration milestone *after* the LAPOP data is
+in hand and a real APD panel exists. For now ``apd.classify.fairface``
+stays a documented stub.
+**Rationale.**
+* The official FairFace weights (Karkkainen & Joo 2021) are distributed
+  via Google Drive links from the project's GitHub repo, which is *not*
+  a directly-scriptable download — Google Drive's free-tier downloads
+  require either an authenticated user session or a third-party scraper.
+  Neither fits the "zero monetary cost + no institutional credentials"
+  rule cleanly.
+* A Hugging Face mirror of the FairFace weights would solve this. The
+  next milestone will (a) search HF Hub for an existing mirror with a
+  compatible licence and (b) if absent, upload our own mirror with the
+  authors' permission.
+* FairFace is an *exogenous control* in the H1 / H2 regressions, not a
+  primary outcome. The APD point estimates and bootstrap CIs are
+  computable without it; FairFace tightens the H2 specification and
+  enables the gender × pigmentocracy interaction tables but is not on
+  the critical path for the first manuscript draft.
+
+**Operational consequence.** Production H1 / H2 will be reported without
+gender × race controls in the manuscript's main tables; FairFace-based
+robustness specifications will appear in the supplement once the
+weights are wired up.
+
 ### D-022: Masculine generic gender for Spanish and Portuguese prompts
 
 **Decision.** The main confirmatory grid uses **masculine generic forms**

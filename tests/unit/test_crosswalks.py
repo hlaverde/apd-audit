@@ -1,32 +1,86 @@
-"""Unit tests for the POC occupation crosswalks."""
+"""Unit tests for the occupation crosswalks."""
 
 from __future__ import annotations
 
 import pytest
 
-from apd.ground_truth.crosswalks import POC_MAPPINGS, get_mapping
+from apd.ground_truth.crosswalks import (
+    POC_MAPPINGS,
+    all_isco08_minor_codes,
+    get_mapping,
+    occupations_by_tier,
+)
+
+# The proposal §6.1 grid is 25 occupations spanning ISCO-08 majors 1..9.
+EXPECTED_COUNT = 25
+EXPECTED_TIERS = {"high", "medium", "low"}
 
 
-def test_all_poc_occupations_have_isco_codes() -> None:
-    expected = {"CEO", "nurse", "domestic worker"}
-    assert set(POC_MAPPINGS) == expected
-    for occ in expected:
-        mapping = get_mapping(occ)
-        assert mapping.isco08_minor != ""
-        # ISCO-08 sub-major codes are 3-digit numerals
-        assert mapping.isco08_minor.isdigit()
-        assert len(mapping.isco08_minor) == 3
+class TestCrosswalkCoverage:
+    def test_25_occupations_registered(self) -> None:
+        assert len(POC_MAPPINGS) == EXPECTED_COUNT
+
+    def test_all_have_three_digit_isco_minor(self) -> None:
+        for name, m in POC_MAPPINGS.items():
+            assert m.isco08_minor.isdigit() and len(m.isco08_minor) == 3, (
+                f"{name}: isco08_minor must be 3-digit numeric, got {m.isco08_minor!r}"
+            )
+
+    def test_all_have_one_digit_isco_major(self) -> None:
+        for name, m in POC_MAPPINGS.items():
+            major = m.derived_major
+            assert major.isdigit() and len(major) == 1, f"{name}: bad major {major!r}"
+            assert m.isco08_minor.startswith(major), (
+                f"{name}: minor {m.isco08_minor} must start with major {major}"
+            )
+
+    def test_status_tiers_use_canonical_labels(self) -> None:
+        for name, m in POC_MAPPINGS.items():
+            assert m.status_tier in EXPECTED_TIERS, (
+                f"{name}: status_tier {m.status_tier!r} not in {EXPECTED_TIERS}"
+            )
+
+    def test_all_have_translations(self) -> None:
+        for name, m in POC_MAPPINGS.items():
+            assert m.spanish, f"{name} missing Spanish translation"
+            assert m.portuguese, f"{name} missing Portuguese translation"
+
+    def test_distribution_across_status_tiers(self) -> None:
+        # The grid mixes high/medium/low to exercise the H2 gradient.
+        for tier in EXPECTED_TIERS:
+            occs = occupations_by_tier(tier)
+            assert len(occs) >= 3, f"only {len(occs)} occupations in tier {tier!r}"
 
 
-def test_isco_codes_are_in_the_expected_groups() -> None:
-    # CEO ∈ ISCO-08 group 11 (chief executives, senior officials and legislators)
-    assert get_mapping("CEO").isco08_minor.startswith("11")
-    # Nurses ∈ ISCO-08 group 22 (health professionals)
-    assert get_mapping("nurse").isco08_minor.startswith("22")
-    # Domestic workers ∈ ISCO-08 group 91 (cleaners and helpers)
-    assert get_mapping("domestic worker").isco08_minor.startswith("91")
+class TestKeyAnchors:
+    """Spot-checks on a handful of well-known ISCO assignments."""
+
+    def test_ceo_is_managing_directors(self) -> None:
+        assert get_mapping("CEO").isco08_minor == "112"
+        assert get_mapping("CEO").derived_major == "1"
+
+    def test_doctor_is_medical_professional(self) -> None:
+        assert get_mapping("doctor").isco08_minor == "221"
+
+    def test_nurse_is_nursing_professional(self) -> None:
+        assert get_mapping("nurse").isco08_minor == "222"
+
+    def test_domestic_worker_is_elementary_cleaner(self) -> None:
+        m = get_mapping("domestic worker")
+        assert m.isco08_minor == "911"
+        assert m.derived_major == "9"
 
 
-def test_unknown_occupation_raises() -> None:
-    with pytest.raises(KeyError, match="no crosswalk"):
-        get_mapping("astronaut")
+class TestErrors:
+    def test_unknown_occupation_raises(self) -> None:
+        with pytest.raises(KeyError, match="no crosswalk"):
+            get_mapping("astronaut")
+
+
+def test_all_isco_minor_codes_sorted() -> None:
+    codes = all_isco08_minor_codes()
+    assert codes == sorted(codes)
+    # 25 occupations may collapse to fewer minor codes (some share an ISCO
+    # group like janitor + domestic worker = 911), but should still cover
+    # at least 20 distinct minor groups.
+    assert len(codes) >= 20

@@ -97,3 +97,47 @@ def test_face_detect_returns_no_face_for_missing_file(tmp_path: Path) -> None:
     assert result.has_face is False
     assert result.bbox is None
     assert result.cropped_bgr is None
+
+
+class TestCASCo:
+    def test_module_importable(self) -> None:
+        from apd.classify import skin_casco  # noqa: WPS433
+
+        assert hasattr(skin_casco, "compute_casco_perla")
+        assert hasattr(skin_casco, "HEX_TO_PERLA")
+
+    def test_hex_to_perla_table_is_well_formed(self) -> None:
+        from apd.classify.skin_casco import HEX_TO_PERLA  # noqa: WPS433
+
+        # 11 PERLA tones, lightest = 1, darkest = 11.
+        assert set(HEX_TO_PERLA.values()) == set(range(1, 12))
+        # All keys are lower-case 7-character hex strings.
+        for h in HEX_TO_PERLA:
+            assert h.startswith("#") and len(h) == 7 and h == h.lower()
+
+    def test_perla_lightest_is_one(self) -> None:
+        from apd.classify.skin_casco import HEX_TO_PERLA  # noqa: WPS433
+
+        # By the project convention, the lightest hex must map to PERLA 1.
+        assert HEX_TO_PERLA["#fbf2f3"] == 1
+        assert HEX_TO_PERLA["#373028"] == 11
+
+    def test_returns_none_for_missing_file(self, tmp_path: Path) -> None:
+        from apd.classify.skin_casco import compute_casco_perla  # noqa: WPS433
+
+        assert compute_casco_perla(tmp_path / "missing.png") is None
+
+    def test_contract_on_noise_image(
+        self,
+        tmp_path: Path,
+        random_noise_image: np.ndarray,
+    ) -> None:
+        from apd.classify.skin_casco import compute_casco_perla  # noqa: WPS433
+
+        p = tmp_path / "noise.png"
+        cv2.imwrite(str(p), random_noise_image)
+        # CASCo's face detection is permissive; it may return PERLA 1..11 or
+        # None on random noise. The contract is that the return type is an
+        # int in [1, 11] OR None, never anything else.
+        out = compute_casco_perla(p)
+        assert out is None or (isinstance(out, int) and 1 <= out <= 11)

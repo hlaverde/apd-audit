@@ -40,6 +40,10 @@ dependencies = [
     "matplotlib>=3.8",
     # docs / proposal reading
     "python-docx>=1.1",
+    # CASCo PERLA classifier (Rejón Piña & Ma 2023, Social Science Quarterly).
+    # Reference implementation maintained at github.com/ChenglongMa/SkinToneClassifier.
+    # Licence: GPL-3.0 (used as a runtime dependency, not statically linked).
+    "skin-tone-classifier>=1.2.3",
 ]
 
 [project.optional-dependencies]

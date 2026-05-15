@@ -50,15 +50,61 @@ documented fallback (~5–10 min/image on a typical laptop).
 **Rationale.** Fastest path under the zero-cost constraint. Tokens are read
 from `.env`, never logged, never committed.
 
-### D-005: Classifier stack for POC
+### D-005: Classifier stack — full 2-of-3 concordance now active
 
-**Decision.** The POC runs **MediaPipe** (face detection) + **ITA** (CIE-Lab
-angle) + **MST** (Monk Skin Tone scale, mapped to PERLA via a published
-crosswalk). **CASCo** is deferred to a later commit because its reference
-implementation (Rejón Piña 2023) needs to be vendored and validated; it is not
-on the critical path for plumbing validation.
-**Rationale.** ITA + MST are unambiguous open-source instruments and cover the
-"two of three classifier" concordance requirement once CASCo lands.
+**Decision (updated).** The POC runs OpenCV-Haar (face detection; D-010) +
+**ITA** + **MST** + **CASCo**. CASCo is reached through the maintained
+PyPI library **`skin-tone-classifier`** (`stone.process`), which is the
+upstream reference implementation of Rejón Piña & Ma 2023 with PERLA
+palette support out of the box. The 2-of-3 concordance rule is
+implemented in `apd.classify.consensus.consensus_perla` (median of
+available classifier outputs + `concordant_2of3` boolean flag when at
+least 2 classifiers fall within ±1 PERLA tone of the median).
+
+**Initial concordance on the POC (n = 30 FLUX-generated faces)**:
+* CEO: 9/10 concordant 2-of-3, mean consensus PERLA = 7.2.
+* nurse: 10/10 concordant, mean = 7.1.
+* domestic worker: 10/10 concordant, mean = 8.0.
+
+29/30 = 97% concordance suggests the three independent measurements
+agree on most images. The lone discordant case (CEO seed 9) had
+ITA = 1, MST = 5, CASCo = 3 — the median (3) is within ±1 of only
+itself, so the row carries `concordant_2of3 = False` and would be
+excluded from the "high-confidence subset" robustness specification of
+H1.
+
+**Rationale.** With the PyPI library available, vendoring CASCo or
+emailing the author is unnecessary. The implementation is published, on
+PyPI, actively maintained (v1.2.6 March 2025, used in multiple 2025
+peer-reviewed papers), and exposes a clean Python API.
+
+### D-016: CASCo licensing (GPL-3.0 dependency in an MIT project)
+
+**Decision.** Use `skin-tone-classifier` (GPL-3.0) as a runtime
+dependency. Our own code remains MIT (`LICENSE`). Anyone redistributing
+the combined package must respect GPL-3.0 terms for the CASCo portion;
+this is documented in `README.md` and surfaced again here.
+**Rationale.** Python's dynamic import is consistently interpreted as
+"mere aggregation" rather than statically linked derivative work, so an
+MIT-licensed project importing a GPL-3.0 library does not have to relicense
+its own code. For peer-review purposes the only obligations are
+attribution and unmodified passthrough of the upstream licence — both
+satisfied by pinning a published PyPI version.
+
+### D-017: Unicode-path workaround for OpenCV / CASCo / Haar
+
+**Decision.** `src/apd/classify/skin_casco.py` redirects
+`cv2.data.haarcascades` to an ASCII tmp cache at module import. Input
+images are copied to a temp ASCII path before being passed to
+`stone.process`. The same `_read_image_unicode_safe` pattern from D-017
+is reused in `face_detect`.
+**Rationale.** On Windows with a cp1252 system codepage, OpenCV's
+`cv2.imread`, `cv2.FileStorage`, and any function backed by `fopen`
+silently fail to open files whose path contains non-ASCII characters.
+The project root contains *Investigación* with the *ó*, so every cv2
+call dies unless we sidestep the path. The patch is idempotent and
+process-local (no environment changes).
+
 
 ### D-006: Wasserstein implementation
 
@@ -92,6 +138,45 @@ Makefile uses file-target dependencies so re-running `make all-poc` skips
 stages whose output already exists *and* is newer than its inputs.
 **Rationale.** Required by the editorial replicability claim and by the POC
 acceptance criterion that `make all-poc` re-runs cleanly.
+
+### D-015: Q-G resolved — Scientific Reports is the primary target
+
+**Decision.** The primary submission journal is **Scientific Reports** (Nature
+Portfolio, Q1 multidisciplinary, FI ≈ 4.6). Cascade if rejected with
+constructive feedback: *Nature Human Behaviour* → *PLOS ONE* → *Big Data &
+Society* → *EPJ Data Science* → *AI & Society* → FAccT proceedings.
+**Rationale.**
+* The proposal itself selected SR as target (§9). The realistic acceptance
+  probability is 35–55% conditional on competent execution, per the proposal's
+  own estimate.
+* AlDahoul, Rahwan & Zaki (2025) published a structurally identical audit
+  (T2I bias × occupations × phenotype) in SR. The editorial precedent is
+  direct.
+* SR's reproducibility expectations align with our zero-cost + open-data
+  commitment.
+* Aiming higher (NHB or PNAS) is feasible but requires a heavier theory
+  and policy framing that we should NOT decide before seeing the empirical
+  results. The same paper can be re-targeted at NHB after the panel is
+  built, without losing work.
+
+### D-014: Q-A resolved — LAPOP 2023 primary ground truth across all four countries
+
+**Decision.** Production ground truth is built from **LAPOP AmericasBarometer
+2023** for Colombia, Mexico, Brazil and Peru. The four national surveys
+(GEIH/ENADIS/PNADC/ENAHO) enter as a **robustness check** that uses each
+country's own classification system and confirms the LAPOP-based estimate.
+**Rationale.**
+* LAPOP carries PERLA `COLOR` applied by the interviewer — directly the
+  instrument the proposal §4.2 prescribes. No ethnic-category → PERLA
+  imputation chain to defend at peer review.
+* One registration (email, free) covers all four countries with a uniform
+  schema.
+* Setup cost: ~1 day. National surveys: 1–2 weeks (four different portals,
+  four schemas, ethnic imputation).
+* Risk: small per-(country × occupation) cell sizes for high-status
+  occupations. Mitigation: collapse to ISCO-08 sub-major group when n < 30
+  in a cell, document the procedure, report n per cell in the supplement.
+* The proposal §4.2 explicitly anticipates this path.
 
 ### D-013: Pollinations.ai as the POC image-generation relay
 

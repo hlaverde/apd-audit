@@ -80,6 +80,7 @@ dependencies = [
     { name = "requests" },
     { name = "scikit-learn" },
     { name = "scipy" },
+    { name = "skin-tone-classifier" },
     { name = "statsmodels" },
 ]
 
@@ -128,6 +129,7 @@ requires-dist = [
     { name = "safetensors", marker = "extra == 'ml'", specifier = ">=0.4" },
     { name = "scikit-learn", specifier = ">=1.5" },
     { name = "scipy", specifier = ">=1.13" },
+    { name = "skin-tone-classifier", specifier = ">=1.2.3" },
     { name = "statsmodels", specifier = ">=0.14" },
     { name = "torch", marker = "extra == 'ml'", specifier = ">=2.2" },
     { name = "transformers", marker = "extra == 'ml'", specifier = ">=4.42" },
@@ -252,6 +254,16 @@ sdist = { url = "https://files.pythonhosted.org/packages/d8/53/6f443c9a4a8358a93
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6", size = 25335, upload-time = "2022-10-25T02:36:20.889Z" },
 ]
+
+[[package]]
+name = "colormath"
+version = "3.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "networkx" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ce/cf/70ea34103a76cc6fb1892289bda321cd0cc73b1a5500ee7fe9ef9f64acef/colormath-3.0.0.tar.gz", hash = "sha256:3d4605af344527da0e4f9f504fad7ddbebda35322c566a6c72e28edb1ff31217", size = 39761, upload-time = "2017-12-27T20:15:11.537Z" }
 
 [[package]]
 name = "contourpy"
@@ -1632,6 +1644,24 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
+]
+
+[[package]]
+name = "skin-tone-classifier"
+version = "1.2.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama" },
+    { name = "colormath" },
+    { name = "numpy" },
+    { name = "opencv-python" },
+    { name = "packaging" },
+    { name = "requests" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/93/57/5f808b719f808f5ab2bcf440bd2220368dc29a0d09f524b774e8d6c98d8e/skin_tone_classifier-1.2.6.tar.gz", hash = "sha256:80f16598172f5e2ed5720361960fae175fb68fa09971c7065c3301d1003802fa", size = 140037, upload-time = "2025-03-12T14:18:13.132Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/e4/a21bd06c4086a0b9b21d584f79fe66bf6e2da882883b386769274521902f/skin_tone_classifier-1.2.6-py3-none-any.whl", hash = "sha256:2e7980c40a7752b629befed9b8da8822f0137ae4075e69563cd876e150034100", size = 118707, upload-time = "2025-03-12T14:18:11.673Z" },
 ]
 
 [[package]]

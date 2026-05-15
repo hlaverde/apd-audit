@@ -159,6 +159,97 @@ Society* → *EPJ Data Science* → *AI & Society* → FAccT proceedings.
   results. The same paper can be re-targeted at NHB after the panel is
   built, without losing work.
 
+### D-018: Q-B resolved — 4 main + 4 robustness models
+
+**Decision.** Main confirmatory grid uses **SD 1.5, SD XL 1.0, SD 3.5
+Medium, FLUX.1-schnell**. Robustness grid uses **SD 2.1, Playground v2.5,
+Kandinsky 3, AltDiffusion-m18**. Total 8 models, exactly as the proposal
+§4.1 specifies (§6.1's "operational reduction").
+**Rationale.**
+* Reducing the main grid below 4 weakens H4 (the test of whether scaling
+  resolves the bias requires within-family comparisons across at least
+  3–4 versions).
+* Expanding past 4 main multiplies confounds (training-corpus mix, prompt
+  encoder differences) without proportionate explanatory gain.
+* The 4 robustness models defend the manuscript against the "you only
+  tested commercial-leaning Stability AI lineage" critique by adding
+  Apache-2.0 (Kandinsky 3, FLUX), multilingual (AltDiffusion) and
+  aesthetic-tuned (Playground v2.5) coverage.
+
+**Operational consequence.** Total of ~12 000 main images + 3 200
+robustness ≈ 15 200 generations distributed across Colab T4, Kaggle GPU,
+and Pollinations.ai per §6 of `DESIGN.md`. Weights cached per coauthor
+account on Google Drive (~50 GB combined for the 8 models, one-time).
+
+### D-019: Q-C resolved — parallel daily generation shifts
+
+**Decision.** Each coauthor runs **one Colab T4 shift (≤90 min) + one
+Kaggle GPU shift (up to 12 h) per working day** during the production
+window. A shared work-queue is read from the committed prompt-grid
+parquet; the orchestrator picks the next *N* pending cells, generates
+them, and commits the resulting metadata shard back to the repo at
+session end. The panel builder merges shards and deduplicates on
+`image_id`.
+**Rationale.**
+* Maximises sustained throughput (≈12 800 imgs/day, per `DESIGN.md` §6.2).
+* The pipeline is already idempotent (POC validated); two coauthors
+  generating the same cell does no harm and saves coordination overhead.
+* `images/main/metadata.parquet` becomes the single source of truth for
+  "what's done", visible to all coauthors via git.
+* Concretised in `notebooks/generation_shift.ipynb` (template committed).
+
+### D-020: Q-D resolved — visual validation labellers
+
+**Decision.** **CL (first author)** and **YP (co-author)** independently
+PERLA-label the stratified 300-image sample, **blind** to all algorithmic
+classifier outputs. **HL (PI)** adjudicates the cases of κ disagreement.
+The labelling round happens 4 weeks before manuscript submission.
+**Rationale.**
+* Two-rater blind labelling produces a reportable inter-rater Cohen's κ —
+  the standard reviewer-defensible metric for classifier validity.
+* A PI adjudicator resolves edge cases without inflating the
+  inter-rater agreement statistic itself (the κ is the *raw* CL/YP
+  agreement; adjudication produces a separate "consensus ground truth"
+  used as the validation reference).
+* Timing 4 weeks pre-submission leaves room for re-labelling if κ < 0.6.
+
+### D-022: Masculine generic gender for Spanish and Portuguese prompts
+
+**Decision.** The main confirmatory grid uses **masculine generic forms**
+in Spanish and Portuguese (``médico``, ``ingeniero``, ``niñero``,
+``costurero``, etc.) for every one of the 25 occupations. Feminine
+variants enter as an **exploratory robustness specification**, not the
+confirmatory grid.
+**Rationale.**
+* English's neutral occupational nouns ("doctor", "nurse", "nanny") map
+  most cleanly onto the masculine generic in Romance languages.
+* Spanish and Portuguese training corpora are dominated by masculine
+  generic forms; this is the most likely prompt a real user would write
+  and therefore the most ecologically valid baseline.
+* Holding gender form fixed in the main grid leaves gender as a *clean
+  treatment variable* for a future robustness specification (compare
+  ``médico``/``médica`` outputs explicitly).
+* The proposal's notation "médico/a" is honored in the supplementary
+  robustness analysis. The main result is reported under masculine
+  generic and the supplement reports the gender-variant gap.
+
+**Operational consequence.** The Spanish nouns in
+`src/apd/ground_truth/crosswalks.py` are stored in their masculine
+singular form. ``niñera`` → ``niñero``, ``costurera`` → ``costurero``,
+``empleada doméstica`` → ``empleado doméstico``.
+
+### D-021: Q-F resolved — HL files the OSF pre-registration
+
+**Decision.** Henry Laverde (PI) submits the OSF pre-registration form
+once §1–§7 of `DESIGN.md` are locked and *before* any production-grid
+image is generated.
+**Rationale.**
+* The PI's submission carries institutional weight for the CEI / IRB
+  trail that any peer-reviewed venue may consult.
+* The PI sees the entire research plan; the first author and co-author
+  retain comment access on the OSF preprint for revisions.
+* A single submitter avoids fork-of-truth registration ambiguity.
+
 ### D-014: Q-A resolved — LAPOP 2023 primary ground truth across all four countries
 
 **Decision.** Production ground truth is built from **LAPOP AmericasBarometer

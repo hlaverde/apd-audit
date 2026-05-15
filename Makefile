@@ -19,23 +19,29 @@ export PYTHONUTF8 := 1
 
 # ---------------- top-level convenience -----------------------------------
 
-.PHONY: help setup all-poc lint test clean
+.PHONY: help setup all-poc all-prod preflight lint test clean
 help:
 	@echo Available targets:
 	@echo   setup        Create venv and install dependencies (uv sync).
-	@echo   all-poc      Run the full POC pipeline end-to-end.
+	@echo   preflight    Verify production readiness (LAPOP, ground truth, tests).
+	@echo   all-poc      Run the 30-image proof-of-concept pipeline end-to-end.
+	@echo   all-prod     Run the production pipeline (assumes images are generated).
 	@echo   ground-truth Build f_emp from public microdata.
-	@echo   generate     Generate 30 SD1.5 images via HF free tier.
-	@echo   classify     Run MediaPipe + ITA + MST + (optional) CASCo.
+	@echo   generate     Generate 30 POC images via Pollinations.
+	@echo   classify     Run face detect + CASCo + ITA + MST + concordance.
 	@echo   panel        Build the (model, occ, country, lang) panel.
 	@echo   apd          Compute D, Delta, APD.
-	@echo   estimate     Plot gradient (Delta vs status) and run H1-H5 stubs.
-	@echo   test         Run pytest (unit + integration on fixtures).
+	@echo   estimate     Plot gradient (Delta vs status) and run estimators.
+	@echo   validate     Sample 300 images for blind PERLA labelling.
+	@echo   test         Run pytest (unit + integration).
 	@echo   lint         Run ruff + black + isort in check mode.
-	@echo   clean        Remove interim artefacts (NOT raw or final results).
+	@echo   clean        Remove interim artefacts.
 
 setup:
 	uv sync --extra dev
+
+preflight:
+	$(PY) scripts/00_preflight.py
 
 all-poc: \
 	data/processed/ground_truth_poc.parquet \
@@ -44,6 +50,58 @@ all-poc: \
 	data/processed/panel_poc.parquet \
 	results/tables/apd_poc.csv \
 	results/figures/gradient_poc.png
+
+# Production pipeline. Assumes:
+#   * LAPOP files are in data/raw/.
+#   * Image generation has been distributed across coauthor shifts and
+#     the resulting images/main/metadata.parquet is committed.
+# The make-prod target does not invoke image generation (that happens in
+# the notebook).
+all-prod: preflight \
+	data/processed/ground_truth.parquet \
+	data/interim/main_phenotype.parquet \
+	data/processed/panel_main.parquet \
+	results/tables/apd_main.csv \
+	results/validation/labelling.parquet \
+	results/tables/h3_language.csv
+
+data/processed/ground_truth.parquet data/processed/status_weights.parquet &: \
+		scripts/02_build_ground_truth_main.py \
+		src/apd/ingest/lapop.py \
+		src/apd/ground_truth/status_weights.py
+	$(PY) scripts/02_build_ground_truth_main.py
+
+data/interim/main_phenotype.parquet: \
+		images/main/metadata.parquet \
+		scripts/04_classify_main.py \
+		src/apd/classify/skin_casco.py
+	$(PY) scripts/04_classify_main.py
+
+data/processed/panel_main.parquet: \
+		images/main/metadata.parquet \
+		data/interim/main_phenotype.parquet \
+		scripts/05_build_panel_main.py
+	$(PY) scripts/05_build_panel_main.py
+
+results/tables/apd_main.csv: \
+		data/processed/ground_truth.parquet \
+		data/processed/panel_main.parquet \
+		scripts/06_compute_apd_main.py \
+		src/apd/apd/bootstrap.py
+	$(PY) scripts/06_compute_apd_main.py
+
+results/tables/h3_language.csv: \
+		results/tables/apd_main.csv \
+		scripts/07_estimate_all.py \
+		src/apd/estimate/h3.py
+	$(PY) scripts/07_estimate_all.py
+
+validate: results/validation/labelling.parquet
+
+results/validation/labelling.parquet: \
+		scripts/08_visual_validation.py \
+		src/apd/validate/sampling.py
+	$(PY) scripts/08_visual_validation.py
 
 # ---------------- pipeline stages -----------------------------------------
 

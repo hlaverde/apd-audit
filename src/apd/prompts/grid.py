@@ -85,7 +85,14 @@ ARTICLES: dict[str, str] = {
 
 @dataclass(frozen=True)
 class PromptCell:
-    """One (occupation, language, country, model, seed) cell of the grid."""
+    """One (occupation, language, country, model, seed) cell of the grid.
+
+    The ``occupation`` slot accepts both plain crosswalk keys (e.g.
+    ``"doctor"``) and **marker-encoded keys** (e.g.
+    ``"marker:LatAm:doctor"``). Marker keys produce H5-flavoured prompts
+    that prepend a geographic adjective (e.g. "a photo of a Colombian
+    doctor") for the digital-orientalism diff-in-differences.
+    """
 
     occupation: str
     language: str
@@ -94,14 +101,41 @@ class PromptCell:
     seed: int
 
     def prompt(self) -> str:
+        if is_marker_occupation(self.occupation):
+            return _build_marker_prompt(self.occupation, self.language)
         template = PROMPT_TEMPLATES.get(self.language)
         if template is None:
             raise ValueError(f"unknown language {self.language!r}")
         occ_noun = _occupation_noun(self.occupation, self.language)
         article = _english_article(occ_noun) if self.language == "en" else ARTICLES[self.language]
-        if self.language == "en":
-            return template.format(article=article, occ=occ_noun)
         return template.format(article=article, occ=occ_noun)
+
+
+# Marker handling is referenced by PromptCell.prompt above but defined
+# below so the class definition stays compact. The two helpers are pure
+# functions of strings — they do not touch shared state.
+def is_marker_occupation(key: str) -> bool:
+    return key.startswith("marker:")
+
+
+def split_marker_key(key: str) -> tuple[str, str]:
+    """Return ``(marker, occupation)`` from a synthetic marker key."""
+    if not is_marker_occupation(key):
+        raise ValueError(f"not a marker key: {key!r}")
+    _, marker, occupation = key.split(":", 2)
+    return marker, occupation
+
+
+def _build_marker_prompt(marker_key: str, language: str) -> str:
+    if language != "en":
+        raise NotImplementedError(
+            f"marker prompts are English-only in H5; got {language!r}",
+        )
+    marker, occupation = split_marker_key(marker_key)
+    base = _occupation_noun(occupation, "en")
+    adjective = H5_MARKERS[marker]
+    full = f"{adjective}{base}"
+    return f"a photo of {_english_article(full)}{full}"
 
 
 def _occupation_noun(occupation: str, language: str) -> str:
@@ -118,15 +152,32 @@ def _occupation_noun(occupation: str, language: str) -> str:
     raise ValueError(f"no noun mapping for language {language!r}")
 
 
+# Vowel-letter words that English pronounces with an initial /j/ or /w/
+# consonant sound and therefore take "a", not "an".
+_CONSONANT_SOUND_VOWEL_PREFIXES: tuple[str, ...] = (
+    "eu",     # European, Europe
+    "uni",    # university, unique, unicorn
+    "use",    # useful, user
+    "ute",    # uterus, utensil
+    "one",    # one-year-old
+)
+
+
 def _english_article(noun: str) -> str:
-    """'a' vs 'an' based on the leading vowel sound (heuristic)."""
+    """'a' vs 'an' based on the leading vowel sound (heuristic).
+
+    Letters {a, e, i, o, u} default to "an", except for the small list of
+    consonant-sound-vowel prefixes (European, university, useful, etc.).
+    """
     if not noun:
         return "a "
-    first = noun[0].lower()
-    # Crude rule: vowel-initial → 'an'. "university" and other y-initial
-    # cases are rare in our grid and accepted as 'a university professor'
-    # is in fact correct (consonant /j/ sound).
-    return "an " if first in "aeiou" else "a "
+    lower = noun.lower()
+    if lower[0] not in "aeiou":
+        return "a "
+    for prefix in _CONSONANT_SOUND_VOWEL_PREFIXES:
+        if lower.startswith(prefix):
+            return "a "
+    return "an "
 
 
 def cell_seed(
@@ -214,3 +265,135 @@ def expected_main_grid_size() -> int:
         * len(MAIN_MODELS)
         * MAIN_IMAGES_PER_CELL
     )
+
+
+# -------------------------------------------------------------------------
+# H5 marker-variant grid — geographic markers for the digital-orientalism
+# diff-in-differences. Proposal §3 H5: "médico colombiano" vs "American
+# doctor" vs unmarked. Restricted to a subset of occupations and a single
+# model to keep the budget modest (H5 is exploratory).
+# -------------------------------------------------------------------------
+
+# Subset of occupations that exercise the high-status / low-status range
+# without inflating the H5 budget. Picked to balance ISCO majors 1, 2, 5, 7,
+# 9 with both high-prestige and low-prestige roles.
+H5_OCCUPATIONS: tuple[str, ...] = (
+    "CEO", "doctor", "lawyer", "architect", "nurse",
+    "construction worker", "domestic worker", "street vendor",
+)
+H5_MODELS: tuple[str, ...] = ("pollinations/flux",)
+H5_LANGUAGE: str = "en"          # H5 holds language fixed (en) to isolate marker effect
+H5_IMAGES_PER_CELL: int = 10
+
+# Markers map to a sentence-level adjective applied to the occupation
+# noun. The "unmarked" baseline is the no-adjective form used in the main
+# grid; we include it explicitly here so the H5 panel ships its own
+# control rows (the analysis does NOT borrow control rows from the main
+# grid because seeds differ).
+H5_MARKERS: dict[str, str] = {
+    "unmarked": "",
+    "LatAm": "Colombian ",
+    "US": "American ",
+    "EU": "European ",
+}
+
+
+def h5_cells() -> Iterator[PromptCell]:
+    """H5 grid: 8 occ × 4 markers × 1 model × 10 imgs = 320 cells."""
+    base = settings.seed
+    for occ_idx, occ in enumerate(H5_OCCUPATIONS):
+        for mk_idx, marker in enumerate(H5_MARKERS):
+            for img_idx in range(H5_IMAGES_PER_CELL):
+                yield PromptCell(
+                    occupation=_marker_occupation_key(occ, marker),
+                    language=H5_LANGUAGE,
+                    country="MULTI",
+                    model=H5_MODELS[0],
+                    # Distinct seed namespace from the main grid: + 5_000_000_000
+                    seed=cell_seed(base, occ_idx, mk_idx, 0, img_idx) + 5_000_000_000,
+                )
+
+
+def _marker_occupation_key(occupation: str, marker: str) -> str:
+    """Encode marker into the occupation slot so PromptCell.prompt() works."""
+    return f"marker:{marker}:{occupation}"
+
+
+def expected_h5_grid_size() -> int:
+    return (
+        len(H5_OCCUPATIONS)
+        * len(H5_MARKERS)
+        * len(H5_MODELS)
+        * H5_IMAGES_PER_CELL
+    )
+
+
+# -------------------------------------------------------------------------
+# Robustness grid — 4 extra models + 2 indigenous languages, subset of
+# occupations, lower image count (proposal §6.1 "análisis exploratorio").
+# -------------------------------------------------------------------------
+
+ROBUSTNESS_OCCUPATIONS: tuple[str, ...] = (
+    "CEO", "doctor", "lawyer", "nurse", "police officer",
+    "salesperson", "cook", "construction worker", "domestic worker", "street vendor",
+)
+ROBUSTNESS_MODELS_EXTRA: tuple[str, ...] = (
+    "stabilityai/stable-diffusion-2-1",
+    "playgroundai/playground-v2.5-1024px-aesthetic",
+    "kandinsky-community/kandinsky-3",
+    "BAAI/AltDiffusion-m18",
+)
+ROBUSTNESS_LANGUAGES_INDIGENOUS: tuple[str, ...] = ("qu", "gn")  # quechua, guaraní
+ROBUSTNESS_IMAGES_PER_CELL: int = 10
+
+
+def robustness_cells() -> Iterator[PromptCell]:
+    """Robustness grid: extra-models × main-langs + main-models × indigenous-langs.
+
+    Two complementary subsets:
+    1. The 4 robustness models × 10 occupations × 4 main languages × 10
+       imgs = 1 600 cells.
+    2. The 4 main models × 10 occupations × 2 indigenous languages × 10
+       imgs = 800 cells.
+
+    Total: 2 400 robustness cells. The proposal §6.1 budget allows up to
+    ~3 200; the rest is reserved for additional checks discovered during
+    main-grid analysis.
+    """
+    base = settings.seed
+    # Subset 1: extra models × main languages
+    for occ_idx, occ in enumerate(ROBUSTNESS_OCCUPATIONS):
+        for lang_idx, lang in enumerate(MAIN_LANGUAGES):
+            country = "MULTI" if lang == "en" else _country_for_lang(lang)
+            for model_idx, model in enumerate(ROBUSTNESS_MODELS_EXTRA):
+                for img_idx in range(ROBUSTNESS_IMAGES_PER_CELL):
+                    yield PromptCell(
+                        occupation=occ,
+                        language=lang,
+                        country=country,
+                        model=model,
+                        # Seed offset 1e10 keeps this grid distinct.
+                        seed=cell_seed(base, occ_idx, lang_idx, model_idx, img_idx)
+                        + 10_000_000_000,
+                    )
+    # Subset 2: main models × indigenous languages
+    for occ_idx, occ in enumerate(ROBUSTNESS_OCCUPATIONS):
+        for lang_idx, lang in enumerate(ROBUSTNESS_LANGUAGES_INDIGENOUS):
+            for model_idx, model in enumerate(MAIN_MODELS):
+                for img_idx in range(ROBUSTNESS_IMAGES_PER_CELL):
+                    yield PromptCell(
+                        occupation=occ,
+                        language=lang,
+                        country="MULTI",
+                        model=model,
+                        seed=cell_seed(base, occ_idx, lang_idx, model_idx, img_idx)
+                        + 20_000_000_000,
+                    )
+
+
+def expected_robustness_grid_size() -> int:
+    n_occ = len(ROBUSTNESS_OCCUPATIONS)
+    n_img = ROBUSTNESS_IMAGES_PER_CELL
+    s1 = n_occ * len(MAIN_LANGUAGES) * len(ROBUSTNESS_MODELS_EXTRA) * n_img
+    s2 = n_occ * len(ROBUSTNESS_LANGUAGES_INDIGENOUS) * len(MAIN_MODELS) * n_img
+    return s1 + s2

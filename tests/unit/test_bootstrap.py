@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from apd.apd.bootstrap import BootstrapEstimate, bootstrap_apd
+from apd.apd.bootstrap import BootstrapEstimate, bootstrap_apd, bootstrap_apd_by_cell
 
 
 def _make_ground_truth(occs: list[str], dist: dict[str, np.ndarray], weights: dict[str, float]) -> pd.DataFrame:
@@ -140,3 +140,85 @@ class TestBootstrapDeterminism:
         assert (out_a["APD"].ci_lower, out_a["APD"].ci_upper) != (
             out_b["APD"].ci_lower, out_b["APD"].ci_upper,
         )
+
+
+# ===================== Per-cell bootstrap ===============================
+
+
+def _make_multi_cell_panel(occs: list[str], cells: list[tuple[str, str, str]]) -> pd.DataFrame:
+    """Build a panel with multiple (country, language, model) cells.
+
+    Each cell shares the same occupations but uses constant PERLA per
+    occupation per cell so that bootstrap CIs are tight.
+    """
+    rng = np.random.default_rng(0)
+    rows = []
+    perla_centres = {"CEO": 2, "worker": 9}
+    for country, language, model in cells:
+        for occ in occs:
+            for i in range(20):
+                rows.append(
+                    {
+                        "image_id": f"{country}_{language}_{model}_{occ}_{i}",
+                        "occupation": occ,
+                        "country": country,
+                        "language": language,
+                        "model": model,
+                        "has_face": True,
+                        "perla_consensus": int(perla_centres[occ]),
+                    },
+                )
+    return pd.DataFrame(rows)
+
+
+def _make_multi_country_ground_truth(occs: list[str], countries: list[str]) -> pd.DataFrame:
+    rows = []
+    perla_emp = {"CEO": 7, "worker": 3}
+    for country in countries:
+        for occ in occs:
+            for tone in range(1, 12):
+                rows.append(
+                    {
+                        "country": country,
+                        "occupation": occ,
+                        "perla_tone": tone,
+                        "prob": 1.0 if tone == perla_emp[occ] else 0.0,
+                        "weight": 0.7 if occ == "CEO" else 0.3,
+                    },
+                )
+    return pd.DataFrame(rows)
+
+
+class TestBootstrapByCell:
+    def test_returns_one_row_per_cell(self) -> None:
+        cells = [("CO", "en", "m1"), ("CO", "es-LatAm", "m1"), ("MX", "en", "m1")]
+        panel = _make_multi_cell_panel(["CEO", "worker"], cells)
+        gt = _make_multi_country_ground_truth(["CEO", "worker"], ["CO", "MX"])
+        out = bootstrap_apd_by_cell(panel, gt, n_replicates=100)
+        assert len(out) == 3
+        assert {"country", "language", "model", "APD", "APD_lower", "APD_upper"} <= set(out.columns)
+
+    def test_cell_summary_has_well_formed_cis(self) -> None:
+        cells = [("CO", "en", "m1"), ("MX", "en", "m1")]
+        panel = _make_multi_cell_panel(["CEO", "worker"], cells)
+        gt = _make_multi_country_ground_truth(["CEO", "worker"], ["CO", "MX"])
+        out = bootstrap_apd_by_cell(panel, gt, n_replicates=100)
+        for _, row in out.iterrows():
+            assert row["APD_lower"] <= row["APD_upper"]
+            assert row["n_replicates"] == 100
+            assert row["n_images"] == 40  # 2 occs × 20 imgs per cell
+
+    def test_skips_cells_without_ground_truth(self) -> None:
+        # Panel has a cell for country=PE but ground truth covers only CO.
+        cells = [("CO", "en", "m1"), ("PE", "en", "m1")]
+        panel = _make_multi_cell_panel(["CEO", "worker"], cells)
+        gt = _make_multi_country_ground_truth(["CEO", "worker"], ["CO"])
+        out = bootstrap_apd_by_cell(panel, gt, n_replicates=50)
+        assert len(out) == 1
+        assert out["country"].iloc[0] == "CO"
+
+    def test_missing_cell_keys_raises(self) -> None:
+        bad = pd.DataFrame({"occupation": ["CEO"], "perla_consensus": [3]})
+        gt = _make_multi_country_ground_truth(["CEO"], ["CO"])
+        with pytest.raises(KeyError, match="missing cell keys"):
+            bootstrap_apd_by_cell(bad, gt, n_replicates=10)

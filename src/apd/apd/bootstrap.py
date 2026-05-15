@@ -157,3 +157,81 @@ def bootstrap_apd(
             ci_level=ci_level,
         )
     return out
+
+
+def bootstrap_apd_by_cell(
+    panel: pd.DataFrame,
+    ground_truth: pd.DataFrame,
+    *,
+    cell_keys: tuple[str, ...] = ("country", "language", "model"),
+    n_replicates: int = 1000,
+    ci_level: float = 0.95,
+    seed: int = 20260514,
+    consensus_column: str = "perla_consensus",
+) -> pd.DataFrame:
+    """Bootstrap APD for every (country, language, model) cell.
+
+    Returns a tidy summary DataFrame with one row per cell, columns
+    ``cell_keys + ('APD', 'APD_lower', 'APD_upper', 'n_replicates',
+    'ci_level', 'n_images', 'n_occupations')``. This is the main result
+    table for the manuscript (one APD scalar per cell with CI).
+
+    Ground truth is filtered per-cell by ``country`` (the only cell key
+    that lives in ground_truth). Cells without ground-truth coverage
+    are skipped with a logged warning.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+
+    cell_keys = tuple(cell_keys)
+    missing_panel = set(cell_keys) - set(panel.columns)
+    if missing_panel:
+        raise KeyError(f"panel missing cell keys: {sorted(missing_panel)}")
+
+    rows: list[dict] = []
+    for cell_vals, sub_panel in panel.groupby(list(cell_keys), sort=True):
+        if not isinstance(cell_vals, tuple):
+            cell_vals = (cell_vals,)
+        cell = dict(zip(cell_keys, cell_vals, strict=True))
+        # Restrict ground truth to this cell's country (the only key
+        # ground_truth carries). Languages and models are not in f_emp.
+        sub_gt = ground_truth
+        if "country" in cell and "country" in sub_gt.columns:
+            country_val = cell["country"]
+            sub_gt = sub_gt[sub_gt["country"] == country_val]
+            if sub_gt.empty and country_val == "MULTI":
+                # English cells with country=MULTI: keep all ground-truth
+                # rows; the caller decides how to aggregate.
+                sub_gt = ground_truth
+        if sub_gt.empty:
+            log.warning("no ground truth for cell %s — skipping", cell)
+            continue
+        try:
+            ests = bootstrap_apd(
+                sub_panel,
+                sub_gt,
+                n_replicates=n_replicates,
+                ci_level=ci_level,
+                seed=seed,
+                consensus_column=consensus_column,
+            )
+        except (ValueError, KeyError) as exc:
+            log.warning("bootstrap failed for cell %s: %s", cell, exc)
+            continue
+        apd_est = ests["APD"]
+        rows.append(
+            {
+                **cell,
+                "APD": apd_est.point,
+                "APD_lower": apd_est.ci_lower,
+                "APD_upper": apd_est.ci_upper,
+                "n_replicates": apd_est.n_replicates,
+                "ci_level": apd_est.ci_level,
+                "n_images": int(len(sub_panel)),
+                "n_occupations": int(sub_panel["occupation"].nunique())
+                if "occupation" in sub_panel.columns
+                else 0,
+            },
+        )
+    return pd.DataFrame(rows)

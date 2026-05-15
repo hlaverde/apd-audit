@@ -10,6 +10,13 @@
 PY := uv run python
 SHELL := cmd.exe
 
+# Make the ``apd`` package importable without relying on the editable .pth
+# file, which is fragile when the project path contains non-ASCII characters
+# (Windows .pth handling on cp1252 locales). Setting PYTHONPATH gives a
+# stable behaviour regardless of locale.
+export PYTHONPATH := src
+export PYTHONUTF8 := 1
+
 # ---------------- top-level convenience -----------------------------------
 
 .PHONY: help setup all-poc lint test clean

@@ -1,0 +1,128 @@
+# Layer 1 — Periodic FLUX-via-Pollinations generation shift on GitHub Actions.
+#
+# This workflow runs every 6 hours on a free ubuntu-latest runner (unlimited
+# minutes for public repos) and consumes the *even-hash* shard of the pending
+# FLUX-via-Pollinations cells. Layer 2 (local async worker on Henry's laptop)
+# consumes the *odd-hash* shard, so the two layers do not duplicate work.
+# `scripts/merge_worker_shards.py` dedupes as a safety net if they overlap.
+#
+# Knobs to tune after TAREA 1 completes (D-026 in DECISIONS.md):
+#   * WORKERS — concurrency level for AsyncPollinationsBackend.
+#   * TIME_BUDGET_S — wall clock cap inside the job (must be < 6h to leave
+#     room for commit+push and the GH Actions 6h hard limit).
+#
+# The runner does NOT install the ml extras: SD-family generation happens on
+# Kaggle (Layer 3) where a GPU is available. select_backend will raise if a
+# non-pollinations/* model is requested, by design (D-029 fail-loud).
+
+name: generate-flux-pollinations
+
+on:
+  schedule:
+    # Every 6 hours at minute 0 UTC.
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      workers:
+        description: 'Concurrency level (AsyncPollinationsBackend streams)'
+        required: false
+        default: '5'
+      time_budget_s:
+        description: 'Wall clock cap inside the job (seconds; < 21600 = 6h)'
+        required: false
+        default: '18000'  # 5h
+      shard_id:
+        description: 'Shard id (Layer 1 = 0, Layer 2 = 1)'
+        required: false
+        default: '0'
+
+# Prevent two runs from clobbering each other's pushes. If a run is still
+# active when the cron fires again, the new run waits until the previous
+# one finishes.
+concurrency:
+  group: flux-pollinations
+  cancel-in-progress: false
+
+permissions:
+  contents: write  # required so the GITHUB_TOKEN can push back to the repo
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350  # < 6h hard cap; leaves headroom for commit+push.
+    env:
+      WORKERS: ${{ github.event.inputs.workers || '5' }}
+      TIME_BUDGET_S: ${{ github.event.inputs.time_budget_s || '18000' }}
+      SHARD_ID: ${{ github.event.inputs.shard_id || '0' }}
+      PYTHONUTF8: '1'
+      PYTHONPATH: src
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          # Use the workflow token so subsequent `git push` is authenticated.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Sync runtime + dev dependencies (no ml extras)
+        run: uv sync --extra dev
+
+      - name: Verify test suite is green before generating
+        run: uv run pytest -q --tb=line
+
+      - name: Run continuous worker (Layer 1 shard, even hashes)
+        run: |
+          uv run python scripts/continuous_worker.py \
+            --workers "${WORKERS}" \
+            --shard-id "${SHARD_ID}" \
+            --n-shards 2 \
+            --checkpoint-every 50 \
+            --push-every 200 \
+            --time-budget "${TIME_BUDGET_S}" \
+            --worker-id "gha-${{ github.run_id }}" \
+            --no-push
+
+      - name: Merge shards into canonical metadata
+        run: |
+          uv run python scripts/merge_worker_shards.py --keep-shards
+
+      - name: Commit shard + canonical metadata
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add images/main/metadata.parquet images/main/metadata_*.parquet docs/COST_LOG.md || true
+          if git diff --cached --quiet; then
+            echo "no_changes=true" >> "$GITHUB_OUTPUT"
+            echo "nothing to commit"
+          else
+            git commit -m "shift: GH Actions Layer-1 worker (run ${{ github.run_id }})"
+            echo "no_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push (with rebase if remote moved)
+        if: steps.commit.outputs.no_changes != 'true'
+        run: |
+          # Layer 2 may have pushed concurrent shards. Rebase to integrate
+          # before pushing our own commit.
+          git pull --rebase --autostash || git rebase --abort
+          git push
+
+      - name: Dashboard snapshot
+        if: always()
+        run: |
+          uv run python scripts/09_progress_dashboard.py --out results/progress.md || true
+          if [ -f results/progress.md ]; then
+            echo "## Progress snapshot" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat results/progress.md >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi

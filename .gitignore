@@ -67,7 +67,7 @@ desktop.ini
 *.swp
 *.swo
 
-# Allow production metadata files (the parquets — not the PNGs)
+# Allow production metadata files (the parquets â€” not the PNGs)
 !images/main/metadata.parquet
 !images/main/metadata_*.parquet
 

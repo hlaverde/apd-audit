@@ -27,8 +27,10 @@ image_index < 1_000 — comfortably above the grid dimensions.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import hashlib
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from pathlib import Path
 
 from apd.config import settings
 from apd.ground_truth.crosswalks import POC_MAPPINGS
@@ -51,10 +53,10 @@ MAIN_OCCUPATIONS: tuple[str, ...] = tuple(POC_MAPPINGS.keys())  # 25 occupations
 MAIN_LANGUAGES: tuple[str, ...] = ("en", "es-ES", "es-LatAm", "pt-BR")
 MAIN_COUNTRIES: tuple[str, ...] = ("CO", "MX", "BR", "PE")
 MAIN_MODELS: tuple[str, ...] = (
-    "pollinations/flux",                    # FLUX schnell via Pollinations
-    "runwayml/stable-diffusion-v1-5",       # SD 1.5 (Colab/Kaggle local)
+    "pollinations/flux",  # FLUX schnell via Pollinations
+    "runwayml/stable-diffusion-v1-5",  # SD 1.5 (Colab/Kaggle local)
     "stabilityai/stable-diffusion-xl-base-1.0",  # SD XL (Colab/Kaggle local)
-    "stabilityai/stable-diffusion-3.5-medium",   # SD 3.5 Medium (Colab/Kaggle)
+    "stabilityai/stable-diffusion-3.5-medium",  # SD 3.5 Medium (Colab/Kaggle)
 )
 MAIN_IMAGES_PER_CELL: int = 30
 
@@ -63,19 +65,19 @@ MAIN_IMAGES_PER_CELL: int = 30
 # from the crosswalks. The peninsular Spanish variant uses *fotografía*
 # (more formal/peninsular register) vs *foto* (LatAm colloquial).
 PROMPT_TEMPLATES: dict[str, str] = {
-    "en":       "a photo of {article}{occ}",
-    "es-ES":    "una fotografía de {article} {occ}",
+    "en": "a photo of {article}{occ}",
+    "es-ES": "una fotografía de {article} {occ}",
     "es-LatAm": "una foto de {article} {occ}",
-    "pt-BR":    "uma foto de {article} {occ}",
+    "pt-BR": "uma foto de {article} {occ}",
 }
 
 # Indefinite article per language; masculine generic for the main grid.
 # See DECISIONS.md D-022 for the gender discussion.
 ARTICLES: dict[str, str] = {
-    "en":       "",  # special-cased: "a" vs "an"
-    "es-ES":    "un",
+    "en": "",  # special-cased: "a" vs "an"
+    "es-ES": "un",
     "es-LatAm": "un",
-    "pt-BR":    "um",
+    "pt-BR": "um",
 }
 
 # -------------------------------------------------------------------------
@@ -155,11 +157,11 @@ def _occupation_noun(occupation: str, language: str) -> str:
 # Vowel-letter words that English pronounces with an initial /j/ or /w/
 # consonant sound and therefore take "a", not "an".
 _CONSONANT_SOUND_VOWEL_PREFIXES: tuple[str, ...] = (
-    "eu",     # European, Europe
-    "uni",    # university, unique, unicorn
-    "use",    # useful, user
-    "ute",    # uterus, utensil
-    "one",    # one-year-old
+    "eu",  # European, Europe
+    "uni",  # university, unique, unicorn
+    "use",  # useful, user
+    "ute",  # uterus, utensil
+    "one",  # one-year-old
 )
 
 
@@ -251,20 +253,15 @@ def main_cells(
 def _country_for_lang(language: str) -> str:
     """Anchor a non-English prompt language to its primary LatAm country."""
     return {
-        "es-ES": "MX",      # peninsular Spanish prompt × Mexico microdata
-        "es-LatAm": "CO",   # LatAm-generic Spanish × Colombia microdata
-        "pt-BR": "BR",      # Brazilian Portuguese × Brazil microdata
+        "es-ES": "MX",  # peninsular Spanish prompt × Mexico microdata
+        "es-LatAm": "CO",  # LatAm-generic Spanish × Colombia microdata
+        "pt-BR": "BR",  # Brazilian Portuguese × Brazil microdata
     }.get(language, "CO")
 
 
 def expected_main_grid_size() -> int:
     """Total cells the main grid will produce — 25 × 4 × 4 × 30 = 12 000."""
-    return (
-        len(MAIN_OCCUPATIONS)
-        * len(MAIN_LANGUAGES)
-        * len(MAIN_MODELS)
-        * MAIN_IMAGES_PER_CELL
-    )
+    return len(MAIN_OCCUPATIONS) * len(MAIN_LANGUAGES) * len(MAIN_MODELS) * MAIN_IMAGES_PER_CELL
 
 
 # -------------------------------------------------------------------------
@@ -278,11 +275,17 @@ def expected_main_grid_size() -> int:
 # without inflating the H5 budget. Picked to balance ISCO majors 1, 2, 5, 7,
 # 9 with both high-prestige and low-prestige roles.
 H5_OCCUPATIONS: tuple[str, ...] = (
-    "CEO", "doctor", "lawyer", "architect", "nurse",
-    "construction worker", "domestic worker", "street vendor",
+    "CEO",
+    "doctor",
+    "lawyer",
+    "architect",
+    "nurse",
+    "construction worker",
+    "domestic worker",
+    "street vendor",
 )
 H5_MODELS: tuple[str, ...] = ("pollinations/flux",)
-H5_LANGUAGE: str = "en"          # H5 holds language fixed (en) to isolate marker effect
+H5_LANGUAGE: str = "en"  # H5 holds language fixed (en) to isolate marker effect
 H5_IMAGES_PER_CELL: int = 10
 
 # Markers map to a sentence-level adjective applied to the occupation
@@ -320,12 +323,7 @@ def _marker_occupation_key(occupation: str, marker: str) -> str:
 
 
 def expected_h5_grid_size() -> int:
-    return (
-        len(H5_OCCUPATIONS)
-        * len(H5_MARKERS)
-        * len(H5_MODELS)
-        * H5_IMAGES_PER_CELL
-    )
+    return len(H5_OCCUPATIONS) * len(H5_MARKERS) * len(H5_MODELS) * H5_IMAGES_PER_CELL
 
 
 # -------------------------------------------------------------------------
@@ -334,8 +332,16 @@ def expected_h5_grid_size() -> int:
 # -------------------------------------------------------------------------
 
 ROBUSTNESS_OCCUPATIONS: tuple[str, ...] = (
-    "CEO", "doctor", "lawyer", "nurse", "police officer",
-    "salesperson", "cook", "construction worker", "domestic worker", "street vendor",
+    "CEO",
+    "doctor",
+    "lawyer",
+    "nurse",
+    "police officer",
+    "salesperson",
+    "cook",
+    "construction worker",
+    "domestic worker",
+    "street vendor",
 )
 ROBUSTNESS_MODELS_EXTRA: tuple[str, ...] = (
     "stabilityai/stable-diffusion-2-1",
@@ -397,3 +403,98 @@ def expected_robustness_grid_size() -> int:
     s1 = n_occ * len(MAIN_LANGUAGES) * len(ROBUSTNESS_MODELS_EXTRA) * n_img
     s2 = n_occ * len(ROBUSTNESS_LANGUAGES_INDIGENOUS) * len(MAIN_MODELS) * n_img
     return s1 + s2
+
+
+# -------------------------------------------------------------------------
+# Helpers for multi-worker generation (Layer 1 GH Actions / Layer 2 local
+# async / Layer 3 Kaggle). These are branch-independent: they parameterise
+# *what to generate next*, not *where to generate*.
+# -------------------------------------------------------------------------
+
+
+def image_id_of(cell: PromptCell) -> str:
+    """Deterministic ``image_id`` for a cell.
+
+    Mirrors ``apd.generate.orchestrator._image_id`` (kept in sync — same
+    formula, two locations because ``orchestrator`` imports from this
+    module and we want no reverse import). The format is the dedup key
+    used in every shard parquet:
+
+        ``{model_slash_to_underscore}__{occ_space_to_underscore}__{seed}``
+    """
+    return f"{cell.model.replace('/', '_')}__{cell.occupation.replace(' ', '_')}__{cell.seed}"
+
+
+def shard_filter(image_id: str, shard_id: int, n_shards: int) -> bool:
+    """Deterministic shard assignment via ``SHA256(image_id) % n_shards``.
+
+    Used by Layer 1 (GH Actions) and Layer 2 (local async worker) to
+    consume disjoint slices of the FLUX-via-Pollinations pool without
+    coordination. The ``merge_worker_shards.py`` helper deduplicates any
+    accidental overlap as a safety net.
+
+    Parameters
+    ----------
+    image_id:
+        The deterministic ``image_id`` returned by :func:`image_id_of`.
+    shard_id:
+        Index of this worker (``0 <= shard_id < n_shards``).
+    n_shards:
+        Total number of workers sharing the pool. ``n_shards = 1`` makes
+        the filter a no-op (every cell belongs to this worker).
+    """
+    if n_shards < 1:
+        raise ValueError(f"n_shards must be >= 1, got {n_shards}")
+    if not (0 <= shard_id < n_shards):
+        raise ValueError(f"shard_id {shard_id} out of range for n_shards {n_shards}")
+    if n_shards == 1:
+        return True
+    h = int(hashlib.sha256(image_id.encode("utf-8")).hexdigest()[:16], 16)
+    return h % n_shards == shard_id
+
+
+def _read_done_image_ids(metadata_paths: Iterable[Path]) -> set[str]:
+    """Union of ``image_id`` columns across every existing parquet path.
+
+    Missing paths are silently ignored so callers can pass a glob result
+    that may not exist yet. ``pandas`` is imported lazily so callers that
+    don't use this helper avoid the import cost.
+    """
+    import pandas as pd  # local: keep grid.py importable for prompt-only callers
+
+    done: set[str] = set()
+    for p in metadata_paths:
+        path = Path(p)
+        if not path.exists():
+            continue
+        df = pd.read_parquet(path, columns=["image_id"])
+        done.update(df["image_id"].astype(str).tolist())
+    return done
+
+
+def pending_cells(
+    cells: Iterable[PromptCell],
+    metadata_paths: Iterable[Path],
+    *,
+    shard_id: int = 0,
+    n_shards: int = 1,
+) -> Iterator[PromptCell]:
+    """Yield cells that are not yet present in any metadata shard AND
+    belong to this worker's shard.
+
+    ``cells`` is typically the chained iterator of one or more grids,
+    e.g. ``itertools.chain(main_cells(), h5_cells())``. ``metadata_paths``
+    is the union of canonical ``images/main/metadata.parquet`` plus every
+    ``images/main/metadata_*.parquet`` shard.
+
+    The order of yielded cells follows ``cells``'s iteration order so
+    callers can prioritise (e.g. main grid before robustness).
+    """
+    done = _read_done_image_ids(metadata_paths)
+    for cell in cells:
+        img_id = image_id_of(cell)
+        if img_id in done:
+            continue
+        if not shard_filter(img_id, shard_id, n_shards):
+            continue
+        yield cell

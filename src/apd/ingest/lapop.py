@@ -37,17 +37,19 @@ from apd.ground_truth.crosswalks import POC_MAPPINGS
 
 logger = logging.getLogger(__name__)
 
-# Default LAPOP file names the loader will recognise.
-LAPOP_FILE_NAMES: tuple[str, ...] = (
-    "lapop_colombia_2023.csv",
-    "Colombia_LAPOP_AmericasBarometer_2023_v1.0_w.csv",
-    "Colombia_LAPOP_AmericasBarometer_2023_v1.0_w.dta",
-    "Colombia 2023 LAPOP AmericasBarometer v1.0_W.csv",
-    "Colombia 2023 LAPOP AmericasBarometer v1.0_W.dta",
+# Glob patterns the loader recognises in ``data/raw``. The 2023 wave
+# distribution uses ISO-prefixed names of the form
+# ``COL_2023_LAPOP_AmericasBarometer_v1.0_w.dta`` (one per country).
+LAPOP_FILE_GLOBS: tuple[str, ...] = (
+    "COL_2023_LAPOP_AmericasBarometer_*.dta",
+    "MEX_2023_LAPOP_AmericasBarometer_*.dta",
+    "BRA_2023_LAPOP_AmericasBarometer_*.dta",
+    "PER_2023_LAPOP_AmericasBarometer_*.dta",
 )
 
-# LAPOP 2023 country codes (verify against the file's codebook on first
-# load — log a warning if the value distribution suggests they differ).
+# LAPOP 2023 country codes — confirmed against the four downloaded files
+# (CO=8, MX=1, BR=15, PE=11). Override per-call if a different wave uses
+# different codes.
 LAPOP_COUNTRY_CODES: dict[str, int] = {
     "CO": 8,    # Colombia
     "MX": 1,    # Mexico
@@ -55,22 +57,60 @@ LAPOP_COUNTRY_CODES: dict[str, int] = {
     "PE": 11,   # Peru
 }
 
-# Expected column names. The loader validates these and falls back to a
-# clear error if the file's columns differ — at which point the user
-# adjusts the mapping for the wave they downloaded.
+# Real LAPOP 2023 variable names, verified by inspecting the
+# COL_2023_*.dta file. ``colorr`` is the interviewer-applied PERLA tone;
+# ``edre`` is Nivel de educación (0..6) used as the *status proxy* in
+# place of an ISCO occupation code (the 2023 wave dropped detailed
+# occupation coding — see DECISIONS.md D-024); ``q10inc`` is monthly
+# income, encoded as a bracket integer (the inverse-decoded bracket
+# midpoints live in ``apd.ground_truth.status_weights``).
 EXPECTED_COLUMNS: dict[str, str] = {
     "country": "pais",
-    "perla_tone": "COLOR",
-    "occupation_major": "OCCUP4A",
+    "perla_tone": "colorr",
+    "education": "edre",
+    "income_bracket": "q10inc",
+    "ethnic_id": "etid",
+}
+
+
+# Mapping from study-occupation status tier → education-level set (edre
+# values that approximate that tier). See DECISIONS.md D-024.
+EDUCATION_TIER_VALUES: dict[str, tuple[int, ...]] = {
+    "high":   (5, 6),         # university / superior
+    "medium": (3, 4),         # secondary
+    "low":    (0, 1, 2),      # primary / none
 }
 
 
 def _find_real_file() -> Path | None:
-    """Return the first matching LAPOP file in ``data/raw``, or None."""
-    for name in LAPOP_FILE_NAMES:
+    """Return the first matching LAPOP file in ``data/raw``.
+
+    The 2023 wave produces one ``.dta`` per country, so several files
+    coexist. This helper returns *any* match (the caller usually filters
+    by country code afterwards).
+    """
+    for pattern in LAPOP_FILE_GLOBS:
+        matches = list(settings.data_raw.glob(pattern))
+        if matches:
+            return matches[0]
+    # Back-compat: fall through to the original named files.
+    for name in (
+        "lapop_colombia_2023.csv",
+        "Colombia 2023 LAPOP AmericasBarometer v1.0_W.dta",
+    ):
         p = settings.data_raw / name
         if p.exists():
             return p
+    return None
+
+
+def _find_country_file(country: str) -> Path | None:
+    """Return the LAPOP file matching ``country`` (CO / MX / BR / PE)."""
+    prefixes = {"CO": "COL", "MX": "MEX", "BR": "BRA", "PE": "PER"}
+    if country not in prefixes:
+        return None
+    for p in settings.data_raw.glob(f"{prefixes[country]}_2023_LAPOP_*.dta"):
+        return p
     return None
 
 
@@ -83,21 +123,20 @@ def load_or_synthetic(
 
     Columns:
         occupation, perla_tone (1..11), prob (sums to 1 per occupation),
-        is_synthetic (True if no LAPOP file was found).
+        is_synthetic (False if real LAPOP data loaded).
     """
-    real = _find_real_file()
+    # Prefer the country-specific file (ISO-prefixed 2023 layout).
+    real = _find_country_file(country) or _find_real_file()
     if real is not None:
-        logger.info("LAPOP file found: %s — loading real distribution", real)
+        logger.info("LAPOP file for %s: %s — loading real distribution", country, real)
         try:
             df = _load_real(real, occupations, country=country)
         except (FileNotFoundError, ValueError, KeyError) as exc:
             logger.warning(
-                "LAPOP real load failed (%s); falling back to synthetic prior. "
-                "Fix the issue above and rerun for the real ground truth.",
+                "LAPOP real load failed (%s); falling back to synthetic prior.",
                 exc,
             )
             return synthetic_prior(occupations)
-        # Defensive: ensure every requested occupation got a row.
         missing = set(occupations) - set(df["occupation"].unique())
         if missing:
             logger.warning(
@@ -142,21 +181,32 @@ def _load_real(
 ) -> pd.DataFrame:
     """Parse a LAPOP file and emit the f_emp panel.
 
-    Defensive: validates that the expected columns exist, that the
-    country code is present in the file, and that the resulting cells
-    have at least one valid PERLA tone observation.
+    Strategy (DECISIONS.md D-024):
+    1. Filter to country.
+    2. Drop missing PERLA tones from ``colorr``.
+    3. Map each study occupation to its status tier
+       (``crosswalks.POC_MAPPINGS[occ].status_tier``) and look up the
+       corresponding LAPOP ``edre`` levels in
+       ``EDUCATION_TIER_VALUES``.
+    4. Compute the PERLA distribution among respondents whose ``edre``
+       falls in that set. That distribution becomes f_emp for every
+       study occupation in the tier.
+
+    Defensive: validates columns, country presence, and per-tier sample
+    sizes.
     """
     cols = {**EXPECTED_COLUMNS, **(columns or {})}
     cc = {**LAPOP_COUNTRY_CODES, **(country_codes or {})}
 
     df = _read_lapop_file(path)
 
-    # 1. Column validation.
-    missing_cols = [v for v in cols.values() if v not in df.columns]
+    # 1. Column validation (only the required trio — etid/income are optional).
+    required = ("country", "perla_tone", "education")
+    missing_cols = [cols[k] for k in required if cols[k] not in df.columns]
     if missing_cols:
         raise KeyError(
             f"LAPOP file {path.name} missing expected columns: {missing_cols}. "
-            f"Available columns: {sorted(df.columns)[:20]}{'…' if len(df.columns) > 20 else ''}. "
+            f"Available columns (first 25): {sorted(df.columns)[:25]}…. "
             f"Override via the `columns=` argument if the wave's variable names differ.",
         )
 
@@ -167,50 +217,62 @@ def _load_real(
     country_col = cols["country"]
     cell = df[df[country_col] == country_code]
     if cell.empty:
-        # Sometimes country codes ship as strings; try that path too.
         cell = df[df[country_col].astype(str) == str(country_code)]
     if cell.empty:
         raise ValueError(
             f"LAPOP file has no rows for country code {country_code} "
-            f"in column {country_col!r}. Verify LAPOP_COUNTRY_CODES "
-            f"against the file's codebook.",
+            f"in column {country_col!r}. Verify LAPOP_COUNTRY_CODES.",
         )
 
-    # 3. Drop missing PERLA tones (LAPOP uses 88/98/99 for missing).
+    # 3. Drop missing PERLA tones (LAPOP missing sentinels for `colorr`
+    #    are large ints — the inclusive 1..11 filter catches that).
     perla_col = cols["perla_tone"]
     cell = cell[cell[perla_col].between(1, 11, inclusive="both")].copy()
     cell[perla_col] = cell[perla_col].astype(int)
     if cell.empty:
         raise ValueError(
-            f"no valid PERLA tone observations in column {perla_col!r} "
-            f"for country {country!r}",
+            f"no valid PERLA tone observations in column {perla_col!r} for {country!r}",
         )
 
-    # 4. Drop missing occupation majors.
-    occ_col = cols["occupation_major"]
-    cell = cell[cell[occ_col].between(1, 9, inclusive="both")].copy()
-    cell[occ_col] = cell[occ_col].astype(int)
+    # 4. Build per-tier f_emp distributions.
+    edu_col = cols["education"]
+    cell = cell[cell[edu_col].between(0, 6, inclusive="both")].copy()
+    cell[edu_col] = cell[edu_col].astype(int)
 
-    # 5. Per study-occupation, look up the ISCO major and compute f_emp.
     tones = np.arange(1, 12)
+    tier_distributions: dict[str, tuple[np.ndarray, int]] = {}
+    for tier, edu_values in EDUCATION_TIER_VALUES.items():
+        tier_cell = cell[cell[edu_col].isin(edu_values)]
+        n = len(tier_cell)
+        if n == 0:
+            logger.warning(
+                "LAPOP %s × education tier %r (edre ∈ %s): 0 observations; "
+                "using uniform f_emp for occupations in this tier.",
+                country, tier, edu_values,
+            )
+            tier_distributions[tier] = (np.full(11, 1.0 / 11), 0)
+            continue
+        counts = tier_cell[perla_col].value_counts().reindex(tones, fill_value=0)
+        probs = counts.to_numpy(dtype=float) / counts.sum()
+        tier_distributions[tier] = (probs, n)
+        if n < 30:
+            logger.warning(
+                "LAPOP %s × tier %r: only %d obs; f_emp will be noisy.",
+                country, tier, n,
+            )
+
+    # 5. Map each study occupation to its tier-level f_emp.
     rows: list[dict] = []
     for occ in occupations:
         if occ not in POC_MAPPINGS:
             raise KeyError(f"occupation {occ!r} not registered in crosswalks")
-        major = int(POC_MAPPINGS[occ].derived_major)
-        major_cell = cell[cell[occ_col] == major]
-        if len(major_cell) < 5:
-            logger.warning(
-                "LAPOP %s × ISCO-major %d: only %d observations. The f_emp "
-                "for occupation %r will be noisy; consider collapsing further "
-                "or supplementing with the national survey (D-014 robustness).",
-                country, major, len(major_cell), occ,
+        tier = POC_MAPPINGS[occ].status_tier
+        if tier not in tier_distributions:
+            raise KeyError(
+                f"occupation {occ!r} has status_tier {tier!r} not in "
+                f"EDUCATION_TIER_VALUES",
             )
-            if major_cell.empty:
-                continue
-        counts = major_cell[perla_col].value_counts().reindex(tones, fill_value=0)
-        total = int(counts.sum())
-        probs = counts.to_numpy(dtype=float) / total if total > 0 else np.zeros(11)
+        probs, n = tier_distributions[tier]
         for tone, prob in zip(tones, probs, strict=True):
             rows.append(
                 {
@@ -218,14 +280,13 @@ def _load_real(
                     "perla_tone": int(tone),
                     "prob": float(prob),
                     "is_synthetic": False,
-                    "n_respondents": total,
-                    "isco_major": major,
+                    "n_respondents": int(n),
+                    "education_tier": tier,
                 },
             )
     if not rows:
         raise ValueError(
-            f"LAPOP load produced no rows. Country {country!r} present but "
-            f"no study occupation matched any ISCO major in the data.",
+            f"LAPOP load produced no rows for country {country!r}.",
         )
     return pd.DataFrame(rows)
 

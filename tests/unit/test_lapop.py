@@ -18,25 +18,25 @@ from apd.ingest.lapop import (
 
 @pytest.fixture
 def lapop_fixture_csv(tmp_path: Path) -> Path:
-    """Synthetic CSV mimicking the LAPOP 2023 schema.
+    """Synthetic CSV mimicking the **real LAPOP 2023** schema.
 
-    Two countries (Colombia=8, Mexico=1), nine ISCO major groups, PERLA
-    tones 1-11 plus a few "missing" 88 sentinels we expect the loader to
-    drop. ~500 rows per country, deterministic via seed.
+    Variables: ``pais`` (country code), ``colorr`` (PERLA 1-11),
+    ``edre`` (education level 0-6, used as status proxy per
+    DECISIONS.md D-024). Two countries (Colombia=8, Mexico=1) and a
+    pigmentocratic education-PERLA gradient so the loader can recover
+    a sign-positive structure.
     """
     rng = np.random.default_rng(20260514)
     rows: list[dict] = []
     for country_code in (LAPOP_COUNTRY_CODES["CO"], LAPOP_COUNTRY_CODES["MX"]):
         for _ in range(500):
-            isco_major = int(rng.integers(1, 10))  # 1..9
-            # PERLA centre shifts with status (low ISCO = lighter): mimic
-            # the pigmentocratic pattern the loader should be able to recover.
-            centre = 2.5 + (isco_major - 1) * 0.6
+            edre = int(rng.integers(0, 7))  # 0..6
+            # Higher education → lighter PERLA (modal pattern).
+            centre = 8.0 - edre * 0.9
             tone = int(np.clip(round(rng.normal(centre, 1.5)), 1, 11))
-            # Occasionally inject "missing" sentinel 88 to test filtering.
             if rng.random() < 0.05:
-                tone = 88
-            rows.append({"pais": country_code, "COLOR": tone, "OCCUP4A": isco_major})
+                tone = 88  # LAPOP missing sentinel
+            rows.append({"pais": country_code, "colorr": tone, "edre": edre})
     csv = tmp_path / "lapop_synthetic.csv"
     pd.DataFrame(rows).to_csv(csv, index=False)
     return csv
@@ -45,7 +45,7 @@ def lapop_fixture_csv(tmp_path: Path) -> Path:
 class TestReadFile:
     def test_reads_csv(self, lapop_fixture_csv: Path) -> None:
         df = _read_lapop_file(lapop_fixture_csv)
-        assert {"pais", "COLOR", "OCCUP4A"} <= set(df.columns)
+        assert {"pais", "colorr", "edre"} <= set(df.columns)
         assert len(df) == 1000
 
     def test_rejects_unknown_format(self, tmp_path: Path) -> None:
@@ -63,7 +63,7 @@ class TestLoadRealColombia:
             country="CO",
         )
         expected_cols = {"occupation", "perla_tone", "prob", "is_synthetic",
-                         "n_respondents", "isco_major"}
+                         "n_respondents", "education_tier"}
         assert expected_cols <= set(df.columns)
 
     def test_is_synthetic_false(self, lapop_fixture_csv: Path) -> None:
@@ -84,15 +84,14 @@ class TestLoadRealColombia:
 
     def test_missing_perla_codes_are_dropped(self, lapop_fixture_csv: Path) -> None:
         df = _load_real(lapop_fixture_csv, ["nurse"], country="CO")
-        # Tone 88 should never appear in the output, the loader filters it.
         assert 88 not in df["perla_tone"].unique()
 
     def test_pigmentocratic_signal_recovered(self, lapop_fixture_csv: Path) -> None:
-        """The fixture has a lighter→darker gradient by ISCO major.
+        """The fixture has a lighter→darker gradient by education tier.
 
-        We expect CEO (ISCO 1) to land at lighter mean PERLA than domestic
-        worker (ISCO 9). The synthetic fixture was generated with that
-        ordering so the loader should preserve it.
+        CEO (status_tier='high' → edre 5,6) should land at lighter mean
+        PERLA than domestic worker ('low' → edre 0,1,2) given the
+        fixture's negative slope of PERLA on edre.
         """
         df = _load_real(
             lapop_fixture_csv,
@@ -107,9 +106,9 @@ class TestLoadRealColombia:
             f"domestic worker ({e_dom:.2f}) given the fixture's gradient."
         )
 
-    def test_records_isco_major(self, lapop_fixture_csv: Path) -> None:
+    def test_records_education_tier(self, lapop_fixture_csv: Path) -> None:
         df = _load_real(lapop_fixture_csv, ["CEO"], country="CO")
-        assert (df["isco_major"] == 1).all()
+        assert (df["education_tier"] == "high").all()
 
 
 class TestLoadRealErrors:

@@ -213,6 +213,53 @@ The labelling round happens 4 weeks before manuscript submission.
   used as the validation reference).
 * Timing 4 weeks pre-submission leaves room for re-labelling if κ < 0.6.
 
+### D-024: LAPOP 2023 dropped occupation coding — use education tier as status proxy
+
+**Decision.** Production f_emp(PERLA | study_occupation, country) is built
+by (a) mapping each of the 25 study occupations to one of three
+**education tiers** (primary / secondary / tertiary) and (b) computing
+the empirical PERLA distribution from LAPOP 2023 conditional on the
+respondent's `edre` (Nivel de educación) falling in that tier.
+
+**Rationale.** Inspection of the four LAPOP 2023 country files revealed:
+* LAPOP 2023's `ocup4a` is the *employment-status* indicator (working /
+  unemployed / student / homemaker / retired / disabled / not looking)
+  with 7 levels — **not** an occupation classifier. There is no ISCO,
+  CIUO or industry-coded occupation variable in the wave's free files.
+* `colorr` (interviewer-applied PERLA 1–11) is present and clean: clear
+  modal distribution at light tones (CO mode = 3) with a long dark tail
+  matching published Colombian phenotype distributions.
+* `edre` (education level 0–6, from "Ninguna" through "Universitaria
+  superior") shows a strong education × PERLA crosstab gradient, exactly
+  the status-graded structure we need.
+* `etid` (5 ethnic self-categories — Blanca/Mestiza/Indígena/Negra/Mulata)
+  is present and crosses well with colorr, enabling a future
+  ethnic-category-to-PERLA imputation when national surveys are wired up.
+
+**Mapping (from crosswalks.status_tier):**
+* **tertiary** (`edre ∈ {5, 6}`): CEO, doctor, software engineer, lawyer,
+  university professor, architect, accountant, journalist.
+* **secondary** (`edre ∈ {3, 4}`): nurse, police officer, mechanic,
+  salesperson, secretary, cook, hairdresser, driver, security guard.
+* **primary** (`edre ∈ {0, 1, 2}`): farmer, nanny, construction worker,
+  seamstress, janitor, domestic worker, street vendor, waste collector.
+
+**Limitations explicitly carried into the manuscript.**
+* Education is a noisier proxy for occupation than ISCO codes (R ~ 0.5–0.7
+  in LatAm GEIH / PNADC / ENAHO data).
+* Within a tier, all study occupations share the same f_emp baseline — H2
+  cannot fully separate occupations within the same tier.
+* The proposal §4.2 imputation strategy (ethnic-category bridge using
+  national surveys) remains the **production-grade** ground truth and is
+  filed as **future work**: download GEIH 2023 / ENADIS 2022 / PNADC
+  2023 / ENAHO 2023, observe (occupation × ethnic_category), combine with
+  LAPOP's (ethnic_category × PERLA) for a per-occupation f_emp.
+
+**This decision unlocks a real Colombia ground truth today** without
+waiting on national-survey downloads. The manuscript reports the
+education-tier baseline as the primary specification and the ethnic-
+imputation baseline as a robustness check once national surveys land.
+
 ### D-023: FairFace integration deferred to second milestone
 
 **Decision.** FairFace (gender + age + race controls, proposal §4.3) is

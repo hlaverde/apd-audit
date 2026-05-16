@@ -26,3 +26,4 @@ it cost $0.00 (which free tier / which open dataset / which local resource).
   and the alternative is documented in `DECISIONS.md`.
 | 2026-05-15 04:04 UTC | generate POC | cache free | 30 imgs / 286s | $0.00 | **$0.00** |
 | 2026-05-15 21:42 UTC-5 | shift hl#1 | Pollinations free | 50 imgs / 73 min (88s/img) | $0.00 | **$0.00** |
+| 2026-05-16 12:08 UTC | probe TAREA 1 | Pollinations free | 80 imgs / 1982s (N=1: 20/20 OK ~90s/img; N=3,5,10: 1/20 OK each, 19x 402) | $0.00 | **$0.00** |

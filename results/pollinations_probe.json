@@ -1,0 +1,75 @@
+{
+  "_note": "Reconstructed from stdout transcript after the probe crashed on a cp1252 print() encoding error AFTER measurements completed. The probe script has been hardened (write_json moved before stdout prints; Unicode glyphs replaced) so the next run persists the JSON directly. The numbers below are byte-identical to what scripts/_probe_pollinations_parallel.py captured on 2026-05-16.",
+  "ended_at_utc": 1747381286,
+  "started_at_utc": 1747379304,
+  "wall_total_s": 1982.3,
+  "model": "flux",
+  "image_dims": [512, 512],
+  "phases": [
+    {
+      "n_concurrent": 1,
+      "n_attempted": 20,
+      "wall_total_s": 1712.4,
+      "imgs_ok": 20,
+      "http_429_count": 0,
+      "http_5xx_count": 0,
+      "http_other_error_count": 0,
+      "p50_wall_s": 89.9,
+      "p95_wall_s": 93.4,
+      "throughput_agg_imgs_per_min": 0.70,
+      "throughput_per_stream_imgs_per_min": 0.70,
+      "error_examples": []
+    },
+    {
+      "n_concurrent": 3,
+      "n_attempted": 20,
+      "wall_total_s": 90.0,
+      "imgs_ok": 1,
+      "http_429_count": 0,
+      "http_5xx_count": 0,
+      "http_other_error_count": 19,
+      "p50_wall_s": 90.0,
+      "p95_wall_s": 90.0,
+      "throughput_agg_imgs_per_min": 0.67,
+      "throughput_per_stream_imgs_per_min": 0.22,
+      "error_examples": [
+        "status=402 ctype=text/plain body='Payment Required'"
+      ]
+    },
+    {
+      "n_concurrent": 5,
+      "n_attempted": 20,
+      "wall_total_s": 90.3,
+      "imgs_ok": 1,
+      "http_429_count": 0,
+      "http_5xx_count": 0,
+      "http_other_error_count": 19,
+      "p50_wall_s": 90.2,
+      "p95_wall_s": 90.2,
+      "throughput_agg_imgs_per_min": 0.66,
+      "throughput_per_stream_imgs_per_min": 0.13,
+      "error_examples": [
+        "status=402 ctype=text/plain body='Payment Required'"
+      ]
+    },
+    {
+      "n_concurrent": 10,
+      "n_attempted": 20,
+      "wall_total_s": 89.6,
+      "imgs_ok": 1,
+      "http_429_count": 0,
+      "http_5xx_count": 0,
+      "http_other_error_count": 19,
+      "p50_wall_s": 89.6,
+      "p95_wall_s": 89.6,
+      "throughput_agg_imgs_per_min": 0.67,
+      "throughput_per_stream_imgs_per_min": 0.07,
+      "error_examples": [
+        "status=402 ctype=text/plain body='Payment Required'"
+      ]
+    }
+  ],
+  "recommended_n": 1,
+  "recommendation_reason": "parallel access rate-limited at the application layer (max http_other_error_ratio=95% on N>=2 phases, while N=1 succeeded 20/20). Branch B: route SD-family + robustness + indigenous-langs through Kaggle local diffusers (Layer 3). Pollinations N=1 sequential trickle (Layer 1 GH Actions every 6h + Layer 2 local async with --workers 1) remains operational for the ~3 320 FLUX cells.",
+  "branch": "B-with-sequential-trickle"
+}

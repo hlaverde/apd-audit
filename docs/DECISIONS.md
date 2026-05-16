@@ -184,6 +184,44 @@ metadata — it does not alter the locked statistical specifications
 (hypotheses, BH-FDR, bootstrap, κ ≥ 0.6 threshold, master seed). No
 OSF amendment needed.
 
+### D-030: Delete 20 SD-1.5 mislabelled rows from hl#1 shift
+
+**Decision.** Drop the 20 rows in ``images/main/metadata.parquet`` whose
+``model == "runwayml/stable-diffusion-v1-5"`` AND
+``backend == "pollinations"`` (the bug imprint described in D-029). After
+deletion, ``images/main/metadata.parquet`` contains exactly the 30
+legitimate FLUX rows from hl#1 (CEO × en × pollinations/flux × imgs
+0–29). ``scripts/_fix_hl1_mislabeled.py`` performs the deletion
+idempotently.
+
+**Why deletion (and not "re-label" or "flag").** The pending-cell
+machinery (``apd.prompts.grid.pending_cells``) skips any cell whose
+``image_id`` is already present in the canonical or shard parquet. If
+the 20 mislabelled rows stayed in metadata with a re-label or flag,
+Layer 3 (Kaggle, local ``diffusers``) would never regenerate those
+``runwayml/stable-diffusion-v1-5 × CEO × en × seeds[0..19]`` cells —
+leaving 20 permanent holes in the SD-1.5 main-grid. The pre-registered
+``prereg-v1`` grid requires every cell to be generated under the model
+identifier the proposal names; "flag and forget" violates that.
+
+**Effect on the panel.** Layer 3 will regenerate those 20 cells as
+*real* SD 1.5 images via local ``diffusers`` on Kaggle T4. The
+``image_id`` is deterministic (``image_id_of`` formula), so the
+regenerated rows will be byte-identical in identity to the deleted
+ones; only the image bytes and classifier outputs will be those of
+genuine SD 1.5.
+
+**Effect on prereg-v1.** ``DESIGN.md §6.5`` already authorises
+re-routing a cell to a different backend platform when an upstream free
+tier changes. This is the same provision: we move 20 cells from
+"Pollinations relay" to "local diffusers on Kaggle T4" without touching
+the model identifier. No OSF amendment required.
+
+**Operational consequence for COST_LOG.md.** The 20 deleted images
+cost $0.00 to generate (Pollinations free) and cost $0.00 to delete
+(local). The 20 replacements on Kaggle T4 cost $0.00 (free tier, GPU
+hours from the 30 h/week allowance). Cumulative stays $0.00.
+
 ### D-029: ``select_backend`` fails loud (post-mortem on hl#1 shift)
 
 **Decision.** ``apd.generate.orchestrator.select_backend`` no longer

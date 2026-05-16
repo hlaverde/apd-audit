@@ -44,7 +44,7 @@ data/processed/*.parquet
 
 # Generated images â€” never committed (only metadata is, when small enough)
 images/poc/*/
-images/main/
+images/main/*/
 *.png
 !tests/fixtures/sample_images/*.png
 
@@ -66,3 +66,8 @@ desktop.ini
 .idea/
 *.swp
 *.swo
+
+# Allow production metadata files (the parquets — not the PNGs)
+!images/main/metadata.parquet
+!images/main/metadata_*.parquet
+

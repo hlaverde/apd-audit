@@ -25,3 +25,4 @@ it cost $0.00 (which free tier / which open dataset / which local resource).
 - If a row would have a positive marginal cost, **the action is not taken**
   and the alternative is documented in `DECISIONS.md`.
 | 2026-05-15 04:04 UTC | generate POC | cache free | 30 imgs / 286s | $0.00 | **$0.00** |
+| 2026-05-15 21:42 UTC-5 | shift hl#1 | Pollinations free | 50 imgs / 73 min (88s/img) | $0.00 | **$0.00** |

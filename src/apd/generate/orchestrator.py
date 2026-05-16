@@ -21,7 +21,7 @@ import pandas as pd
 from apd.config import settings
 from apd.prompts.grid import PromptCell
 
-from .hf_backend import GenerationResult, HFBackend, HFGenerationError
+from .hf_backend import GenerationResult, HFBackend
 from .pollinations_backend import PollinationsBackend
 
 logger = logging.getLogger(__name__)
@@ -38,40 +38,79 @@ def image_path(cell: PromptCell, base_dir: Path) -> Path:
     return base_dir / safe_occ / f"seed_{cell.seed}.png"
 
 
+class BackendUnavailableError(RuntimeError):
+    """Raised when no backend can faithfully serve the requested model.
+
+    Replaces the previous silent fallback to ``PollinationsBackend(model="flux")``
+    which caused the hl#1 shift (2026-05-15) to label 20 SD-1.5 cells with
+    FLUX images. See ``DECISIONS.md`` for the post-mortem entry.
+    """
+
+
 def select_backend(model: str, *, prefer_local: bool = False) -> Backend:
-    """Pick a backend.
+    """Pick a backend for ``model`` *or fail loudly*.
 
-    Order of preference (per DECISIONS.md D-013):
+    Resolution order:
 
-    1. **Pollinations.ai** — public, no-token, no-quota relay over the
-       open-weights image models named in the proposal (FLUX, etc.).
-       Used for the POC because HF Inference Providers free tier no
-       longer covers image models for non-Pro accounts.
-    2. **HF Inference** — only when the caller passes an ``hf-`` prefixed
-       model identifier explicitly (kept available for the day HF
-       re-enables free image inference).
-    3. **Local diffusers** — the network-free fallback, requires the
-       ``ml`` optional extras.
+    1. ``prefer_local=True`` → always ``LocalBackend`` (requires ``ml``
+       extras; raises ``BackendUnavailableError`` if not installed).
+    2. ``model`` starts with ``"pollinations/"`` → ``PollinationsBackend``
+       with the suffix as the relay model identifier (``flux``,
+       ``flux-realism``, ``turbo``, …).
+    3. ``model`` looks like a Hugging Face repo path AND ``HF_TOKEN`` is
+       set → ``HFBackend``.
+    4. ``model`` looks like a Hugging Face repo path AND the ``ml`` extras
+       are installed → ``LocalBackend`` (diffusers on CPU/GPU).
+    5. Otherwise → ``BackendUnavailableError`` with an explicit message.
+
+    Critically, the function NEVER silently substitutes one open-weights
+    model for another. The previous behaviour ("default to Pollinations
+    FLUX") routed SD 1.5 / SDXL / SD 3.5 cells through FLUX in the hl#1
+    shift, mislabelling 20 rows. The new contract:
+
+    * Callers passing ``"pollinations/<id>"`` get exactly that relay.
+    * Callers passing an HF repo path get HF or local diffusers — same
+      open weights, no architecture substitution.
+    * If neither path is feasible (no token, no ml extras), the call
+      fails so the caller (worker, notebook, shift) can fix the
+      environment instead of silently corrupting metadata.
     """
     if prefer_local:
         from .local_backend import LocalBackend, is_available  # noqa: WPS433
 
         if not is_available():
-            raise HFGenerationError(
-                "Local 'ml' extras not installed. Run `uv sync --extra ml`.",
+            raise BackendUnavailableError(
+                f"Cannot serve {model!r} via LocalBackend: 'ml' extras not "
+                "installed. Run `uv sync --extra ml` first.",
             )
         return LocalBackend(model=model)
 
-    # Map "pollinations/<id>" model identifiers to the Pollinations backend.
+    # 1. Pollinations relay (explicit identifier).
     if model.startswith("pollinations/"):
         return PollinationsBackend(model=model.split("/", 1)[1])
 
-    # If the model looks like an HF repo path AND we have a token, try HF.
+    # 2. HF Inference Providers (when token present).
     if "/" in model and settings.hf_token:
         return HFBackend(model=model)
 
-    # Default for the POC: Pollinations, plain FLUX.
-    return PollinationsBackend(model="flux")
+    # 3. Local diffusers fallback (when ml extras installed).
+    if "/" in model:
+        try:
+            from .local_backend import LocalBackend, is_available  # noqa: WPS433
+
+            if is_available():
+                return LocalBackend(model=model)
+        except ImportError:  # pragma: no cover — defensive; is_available also catches this
+            pass
+
+    # 4. Fail-loud: do NOT substitute a different open-weights model.
+    raise BackendUnavailableError(
+        f"No backend available for model {model!r}. The previous fallback "
+        f"(silent route to Pollinations FLUX) corrupted the hl#1 shift. "
+        f"Pick one: (a) use 'pollinations/<id>' identifier for FLUX/Turbo "
+        f"via the public relay; (b) set HF_TOKEN in .env for HF Inference; "
+        f"(c) `uv sync --extra ml` + run on a GPU host for local diffusers.",
+    )
 
 
 def generate_poc(
@@ -110,7 +149,11 @@ def generate_poc(
 
 
 def _record(
-    cell: PromptCell, out_path: Path, sha: str, backend_name: str, duration_s: float,
+    cell: PromptCell,
+    out_path: Path,
+    sha: str,
+    backend_name: str,
+    duration_s: float,
 ) -> dict:
     return {
         "image_id": _image_id(cell),

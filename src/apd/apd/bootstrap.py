@@ -77,14 +77,25 @@ def bootstrap_apd(
     alpha = (1.0 - ci_level) / 2.0
 
     # Pre-index per-occupation views so the bootstrap loop is cheap.
+    # Drop occupations that have no images in the panel — auditing them
+    # would mean comparing a uniform fallback distribution against the
+    # empirical f_emp, which is informative neither as point nor in the
+    # bootstrap. The point estimate and the CIs must agree on the same
+    # subset of occupations.
     per_occ_panel: dict[str, pd.DataFrame] = {}
     per_occ_f_emp: dict[str, np.ndarray] = {}
     per_occ_weight: dict[str, float] = {}
+    audited: list[str] = []
     for occ in occupations:
-        per_occ_panel[occ] = panel[panel["occupation"] == occ].reset_index(drop=True)
+        sub = panel[panel["occupation"] == occ].reset_index(drop=True)
+        if sub.empty:
+            continue
+        per_occ_panel[occ] = sub
         gt = ground_truth[ground_truth["occupation"] == occ].sort_values("perla_tone")
         per_occ_f_emp[occ] = gt["prob"].to_numpy(dtype=float)
         per_occ_weight[occ] = float(gt["weight"].iloc[0])
+        audited.append(occ)
+    occupations = audited
 
     # 1. Point estimate from the original sample.
     point_results = []

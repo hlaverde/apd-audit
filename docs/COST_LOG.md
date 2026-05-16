@@ -28,3 +28,4 @@ it cost $0.00 (which free tier / which open dataset / which local resource).
 | 2026-05-15 21:42 UTC-5 | shift hl#1 | Pollinations free | 50 imgs / 73 min (88s/img) | $0.00 | **$0.00** |
 | 2026-05-16 12:08 UTC | probe TAREA 1 | Pollinations free | 80 imgs / 1982s (N=1: 20/20 OK ~90s/img; N=3,5,10: 1/20 OK each, 19x 402) | $0.00 | **$0.00** |
 | 2026-05-16 12:35 UTC | fix hl#1 mislabel | local | drop 20 rows (D-030) | $0.00 | **$0.00** |
+| 2026-05-16 18:10 UTC | shift Layer-2 worker | Pollinations free | 1 imgs / shard checkpoint | $0.00 | **$0.00** |

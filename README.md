@@ -1,5 +1,8 @@
 # Auditing Algorithmic Pigmentocracy (APD)
 
+[![OSF Pre-Registration](https://img.shields.io/badge/OSF-10.17605%2FOSF.IO%2FXFQVM-blue)](https://osf.io/xfqvm)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Empirical audit of phenotype-occupation bias in generative text-to-image AI
 models against Latin-American labour-market microdata.
 
@@ -7,6 +10,12 @@ This repository operationalises the research proposal
 [`docs/Propuesta_SciReports_v1.docx`](docs/Propuesta_SciReports_v1.docx)
 and produces the empirical material for a manuscript targeting
 **Scientific Reports** (Nature Portfolio).
+
+> **Pre-registered on OSF**: [10.17605/OSF.IO/XFQVM](https://osf.io/xfqvm)
+> · filed 2026-05-15. The repository state at the `prereg-v1` git tag
+> pins every source file at filing time. Deviations from the
+> pre-registered plan are documented in
+> [`docs/DECISIONS.md`](docs/DECISIONS.md) with their commit timestamps.
 
 > Authors — Carlos Alfonso Laverde Rodríguez · Yenny Katherine Parra Acosta ·
 > Henry Laverde Rojas. Universidad Militar Nueva Granada.

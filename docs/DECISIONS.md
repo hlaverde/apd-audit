@@ -213,6 +213,33 @@ The labelling round happens 4 weeks before manuscript submission.
   used as the validation reference).
 * Timing 4 weeks pre-submission leaves room for re-labelling if κ < 0.6.
 
+### D-025: OSF Pre-Registration filed (2026-05-15, 20:03 UTC-5)
+
+**Decision.** The OSF Pre-Registration was filed under
+**DOI 10.17605/OSF.IO/XFQVM** at https://osf.io/xfqvm. The
+associated project (currently private) lives at https://osf.io/zkpnx.
+The state of the repository at the moment of filing is permanently
+pinned at the git tag `prereg-v1`.
+
+**Coverage.** The pre-registration covers §1–§7 of `DESIGN.md`: the
+five hypotheses (H1–H3 confirmatory; H4–H5 exploratory), the locked
+prompt grid (25 occupations × 4 languages × 4 models × 30 imgs +
+H5 marker sub-grid + robustness grid), the LAPOP 2023 + education-tier
+empirical baseline (D-024), the 2-of-3 phenotype concordance rule
+(D-005), the bootstrap-1 000 CI procedure, the BH-FDR-at-5%
+multiple-testing correction, the κ ≥ 0.6 visual-validation threshold,
+and the master seed 20260514. Three documented methodological
+deviations from the binding proposal are listed verbatim in the
+"Context and additional information" section of the registration
+(HF Inference dropping image models; LAPOP 2023 dropping occupation
+coding; MediaPipe API churn).
+
+**Implication for the manuscript.** Any deviation from the pre-registered
+specifications discovered during the production run is reported as an
+explicit deviation note in the manuscript supplement, with the commit
+timestamp at which the deviation was applied. Confirmatory hypotheses
+cannot be re-specified after this date.
+
 ### D-024: LAPOP 2023 dropped occupation coding — use education tier as status proxy
 
 **Decision.** Production f_emp(PERLA | study_occupation, country) is built

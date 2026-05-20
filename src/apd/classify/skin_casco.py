@@ -23,6 +23,7 @@ published anchor list (Rejón Piña & Ma 2023 §3.2 / project website).
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -43,7 +44,12 @@ if _src_dir.is_dir() and _src_dir.resolve() != _ASCII_DATA_DIR.resolve():
                 shutil.copy(_xml, _dst)
             except OSError as exc:  # pragma: no cover
                 logger.warning("could not cache cv2 cascade %s: %s", _xml.name, exc)
-    cv2.data.haarcascades = str(_ASCII_DATA_DIR) + "\\"
+    # Use the platform separator. On Windows the previous hard-coded ``"\\"``
+    # worked; on Linux (Kaggle, GH Actions) it produced an invalid path like
+    # ``/tmp/apd_cv2_data_cache\\`` that crashed downstream when ``stone``
+    # tried to load the cascade. ``os.sep`` resolves to ``\`` on Windows and
+    # ``/`` on POSIX, matching the convention cv2 expects on each platform.
+    cv2.data.haarcascades = str(_ASCII_DATA_DIR) + os.sep
 
 # Stone must be imported *after* the patch — it loads cascades at module init.
 import stone  # noqa: E402

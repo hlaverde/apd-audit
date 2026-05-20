@@ -52,3 +52,4 @@ it cost $0.00 (which free tier / which open dataset / which local resource).
 | 2026-05-20 02:36 UTC | shift Layer-2 worker | Pollinations free | 3 imgs / shard checkpoint | $0.00 | **$0.00** |
 | 2026-05-20 08:57 UTC | shift Layer-2 worker | Pollinations free | 2 imgs / shard checkpoint | $0.00 | **$0.00** |
 | 2026-05-20 14:43 UTC | shift Layer-2 worker | Pollinations free | 3 imgs / shard checkpoint | $0.00 | **$0.00** |
+| 2026-05-20 16:51 UTC | shift Layer-3 Kaggle | Kaggle T4 free | 20 imgs / 1.7 min | $0.00 | **$0.00** |

@@ -57,3 +57,4 @@ it cost $0.00 (which free tier / which open dataset / which local resource).
 | 2026-05-21 02:37 UTC | shift Layer-2 worker | Pollinations free | 3 imgs / shard checkpoint | $0.00 | **$0.00** |
 | 2026-05-21 09:01 UTC | shift Layer-2 worker | Pollinations free | 2 imgs / shard checkpoint | $0.00 | **$0.00** |
 | 2026-05-21 14:47 UTC | shift Layer-2 worker | Pollinations free | 2 imgs / shard checkpoint | $0.00 | **$0.00** |
+| 2026-05-21 19:46 UTC | shift Layer-2 worker | Pollinations free | 2 imgs / shard checkpoint | $0.00 | **$0.00** |

@@ -29,6 +29,11 @@ from pathlib import Path
 
 import pandas as pd
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
@@ -153,13 +158,12 @@ def per_model_language_main(df: pd.DataFrame) -> pd.DataFrame:
             index=list(MAIN_MODELS),
             columns=list(MAIN_LANGUAGES),
         )
-    pivot = (
+    return (
         in_main.groupby(["model", "language"])
         .size()
         .unstack(fill_value=0)
         .reindex(index=list(MAIN_MODELS), columns=list(MAIN_LANGUAGES), fill_value=0)
     )
-    return pivot
 
 
 def active_shards(shards: list[Path], now: int | None = None) -> list[tuple[Path, float]]:
@@ -292,7 +296,7 @@ def compute_pending_top(df: pd.DataFrame, top_n: int = 10) -> list[tuple[str, st
         if image_id_of(cell) in done:
             continue
         pending_by[(cell.model, cell.language)] += 1
-    return [(m, l, n) for (m, l), n in pending_by.most_common(top_n)]
+    return [(model_name, lang, n) for (model_name, lang), n in pending_by.most_common(top_n)]
 
 
 # -------------------------------------------------------------------------

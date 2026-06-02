@@ -32,6 +32,9 @@ from pathlib import Path
 
 import pandas as pd
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("00_preflight")
 
@@ -66,25 +69,24 @@ def check_apd_importable() -> CheckResult:
 
 def check_lapop_files() -> CheckResult:
     from apd.config import settings
-    from apd.ingest.lapop import LAPOP_FILE_NAMES
+    from apd.ingest.lapop import LAPOP_FILE_GLOBS
 
-    found = []
-    for name in LAPOP_FILE_NAMES:
-        candidate = settings.data_raw / name
-        if candidate.exists():
-            found.append(candidate.name)
-    # The full study needs 4 country files; the loader currently
-    # recognises one CO-named family. For now we accept any *.csv or
-    # *.dta in data/raw whose name carries a country code.
-    raw_files = list(settings.data_raw.glob("*.csv")) + list(settings.data_raw.glob("*.dta"))
-    n = len(raw_files)
+    matched_files = []
+    for pattern in LAPOP_FILE_GLOBS:
+        matched_files.extend(settings.data_raw.glob(pattern))
+
+    found_names = sorted({p.name for p in matched_files})
+    n = len(found_names)
     ok = n >= 4
+
     return CheckResult(
         name="lapop-files",
         passed=ok,
         severity="blocking",
-        detail=f"{n} candidate microdata files in {settings.data_raw} "
-               f"(need 4 for CO/MX/BR/PE).",
+        detail=(
+            f"{n} LAPOP 2023 files matched expected patterns in {settings.data_raw}: "
+            f"{found_names}. Need 4 country files for CO/MX/BR/PE."
+        ),
     )
 
 
@@ -179,7 +181,7 @@ def check_images_dir_writable() -> CheckResult:
 def check_tests_pass() -> CheckResult:
     try:
         r = subprocess.run(
-            ["uv", "run", "pytest", "-q", "--tb=no", "--no-header"],
+            [sys.executable, "-m", "pytest", "-q", "--tb=no", "--no-header"],
             capture_output=True, text=True, timeout=600,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:

@@ -196,23 +196,23 @@ reconciled.
 
 The real risk was not "conflicting data between two branches" — it was
 that **three months of generation work existed in exactly one place**
-(this Windows machine's working tree, uncommitted). That's now fixed:
-a commit was made on `cloud-generation-20260602` capturing the full
-14 720-row metadata, every supporting script, every cost-log entry, the
-indigenous-language source register, and the Kaggle run provenance.
-**That commit exists locally but has NOT been pushed yet** — pushing
-is a network/GitHub action, so it's waiting on an explicit go-ahead
-rather than being done automatically. It would be a plain fast-forward
-push to `origin/cloud-generation-20260602` (no conflict, since nothing
-else has touched that remote branch since 2026-06-02).
+(this Windows machine's working tree, uncommitted). Fixed: committed
+locally to `cloud-generation-20260602` (14 720-row metadata + every
+supporting script, cost-log entry, indigenous-language source
+register, Kaggle run provenance), then **pushed** — Henry confirmed
+explicitly. Verified after push by extracting
+`origin/cloud-generation-20260602:images/main/metadata.parquet`
+directly and re-counting: **14 720 rows, 14 720 unique `image_id`, on
+GitHub, independent of this machine.** Push was `bf6c9e3..05a64d9`
+(fast-forward, as expected — nothing else had touched that remote
+branch since 2026-06-02).
 
-**What still needs a deliberate decision (not done automatically):**
+**The single-machine-failure risk is closed.** What's left is not
+urgent in the same way — it's normal project-hygiene and analysis work.
 
-1. **Push `cloud-generation-20260602`** to its own remote — safe,
-   fast-forward, zero risk of overwriting anyone else's work. This is
-   the single highest-value pending action; ask Henry before doing it
-   (pushing is a "confirm first" action per house rules even when it's
-   this safe).
+**What still needs a deliberate decision:**
+
+1. ~~Push `cloud-generation-20260602`~~ — **done**, see above.
 2. **Decide what to do about `main`.** Two independent branches with
    real, non-overlapping content (Layer 1's FLUX-only commits on
    `main`; everything else on `cloud-generation-20260602`) is not a
@@ -236,31 +236,29 @@ deliberately not tracked) tree: **248 passed, 1 skipped**
 
 ## 6. What's actually left (in priority order)
 
-Generation was the expensive, slow part. It's done. Everything below is
-analysis and writing — much faster.
+Generation was the expensive, slow part. It's done, and it's safely on
+GitHub (§5). Everything below is analysis and writing — much faster,
+and none of it is a data-loss risk anymore.
 
-1. **Push the safety-net commit** (§5) — currently sitting local-only
-   on `cloud-generation-20260602`. Fast-forward, zero risk, just needs
-   Henry's go-ahead since pushing is a confirm-first action.
-2. **Decide how to unify `cloud-generation-20260602` and `main`** (§5)
+1. **Decide how to unify `cloud-generation-20260602` and `main`** (§5)
    — not yet diagnosed in detail (does Layer 1's FLUX-only work on
    `main` overlap with what's already in the 14 720-row grid, or add
    anything new?). Do that diagnosis before merging either direction.
-3. **Diagnose the PNG-path issue** (§4) — blocks visual validation and
+2. **Diagnose the PNG-path issue** (§4) — blocks visual validation and
    figure generation; does not block APD.
-4. **Run the production analysis pipeline** — has never been run on the
+3. **Run the production analysis pipeline** — has never been run on the
    full grid. Only `results/tables/apd_poc.csv` exists, and it's the
    30-image POC from 2026-05-15. Need: build the production panel
    (`scripts/05_build_panel_main.py` or equivalent — check it still
    matches the current 24-column metadata schema from D-028), compute
    APD with real bootstrap CIs per (country, language, model) cell,
    run H1–H5 estimation (`src/apd/estimate/`) against real data.
-5. **Visual validation** — 300-image stratified sample, two labellers
+4. **Visual validation** — 300-image stratified sample, two labellers
    blind to algorithmic output, Cohen's κ ≥ 0.6 threshold
    (`src/apd/validate/`, `scripts/08_visual_validation.py`). Blocked on
-   #3 (need reachable PNGs for whichever images the stratified sample
+   #2 (need reachable PNGs for whichever images the stratified sample
    selects).
-6. **Manuscript** — Results section can only be written after #4.
+5. **Manuscript** — Results section can only be written after #3.
 
 ## 7. Session log (chronological, so you know what already happened)
 

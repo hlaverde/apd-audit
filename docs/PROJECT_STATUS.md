@@ -165,9 +165,46 @@ Separately, a genuine bug was found and fixed in ITA (D-042): it used
 `arctan2`, which wraps b* < 0 patches beyond ±90° — impossible for
 Chardon's ITA. Stored values ranged −178.5° to +179.5°, and 610 of
 10 663 faces (5.7%) were clamped to PERLA 1 or 11, the extremes.
-`scripts/reclassify_metadata.py` rewrites the stored columns from the
-PNGs; it moves ~2.5% of consensus values and does not close the gap
-above.
+
+**Done 2026-08-24:** `scripts/reclassify_metadata.py` re-ran the
+classifiers over all 14 610 images that still have a PNG and rewrote the
+stored columns. 692 rows (4.7%) changed, mean `perla_consensus`
+7.085 → 7.120, face detection unchanged, 2-of-3 concordance improved
+9 155 → 9 296, ITA now spans −87.74…88.52 with **zero** out-of-range
+values. As predicted this did **not** close the ~3-point gap — that is
+D-043's problem, not this one.
+
+## 4c. Visual validation — ready to hand out (2026-08-24)
+
+The 300-image blind sample is drawn and committed as
+`results/validation/labelling.parquet` (25 occupations × 12, across all
+4 models and 4 languages, main grid only, excluding the rows with no
+PNG). `scripts/make_labelling_sheet.py` builds one self-contained HTML
+rating sheet per labeller —
+`results/validation/labelling_sheet_{cl,yp}.html`, 10.6 MB each,
+gitignored because they embed the PNGs as data URIs.
+
+The sheets are blind: image plus a 1–11 radio row, captioned `Image
+001`. (The `image_id` is `{model}__{occupation}__{seed}`, so printing it
+would have shown the labeller the model and the occupation — caught by
+a leak check on the generated HTML.) CL and YP get independently seeded
+presentation orders so session drift cannot correlate between them and
+inflate κ. Both sheets cover the same 300 images, which is what makes κ
+computable.
+
+**Blocked on Henry / the labellers:** the sheets deliberately draw no
+on-screen PERLA swatches. LAPOP's `colorr` — the empirical baseline
+these ratings are compared against — was recorded by interviewers using
+the *physical* PERLA palette card. CL and YP need that card (or the
+official PERLA/LAPOP palette file) for their labels to land on the same
+scale; rating against an on-screen approximation would create a second,
+differently-calibrated instrument and defeat the exercise. The repo has
+no digital swatches and none were invented.
+
+Once both CSVs come back, merge them into `labelling.parquet`'s
+`cl_perla` / `yp_perla` columns and run
+`scripts/08_visual_validation.py --analyse` for κ(CL↔YP) and
+κ(each rater ↔ algorithmic).
 
 ## 5. Git state — unified, single branch (as of 2026-08-24)
 
@@ -217,19 +254,21 @@ and none of it is a data-loss risk anymore.
    here.
 2. ~~Diagnose the PNG-path issue~~ — **done**, see §4. 110/14 720 rows
    (0.75%) are genuinely unrecoverable; noted for visual validation.
-3. **Run the production analysis pipeline** — has never been run on the
-   full grid. Only `results/tables/apd_poc.csv` exists, and it's the
-   30-image POC from 2026-05-15. Need: build the production panel
-   (`scripts/05_build_panel_main.py` or equivalent — check it still
-   matches the current 24-column metadata schema from D-028), compute
-   APD with real bootstrap CIs per (country, language, model) cell,
-   run H1–H5 estimation (`src/apd/estimate/`) against real data.
-4. **Visual validation** — 300-image stratified sample, two labellers
-   blind to algorithmic output, Cohen's κ ≥ 0.6 threshold
-   (`src/apd/validate/`, `scripts/08_visual_validation.py`). Exclude
-   the 110 rows in `results/orphaned_png_rows.csv` from the sampling
-   pool (see D-036).
-5. **Manuscript** — Results section can only be written after #3.
+3. **Production analysis pipeline** — *partly done, deliberately
+   stopped.* The pipeline had never been run end to end and three seams
+   silently produced wrong answers; all fixed (D-038…D-041), and the
+   panel now builds: 14 720 rows, `country` cell key, grids separated,
+   `_per_occupation_panel.csv` for H1/H2. **Not run:** the 1 000-replicate
+   APD bootstrap (~35 min) and H4/H5 wiring, because D-043 showed the
+   APD *level* is dominated by classifier miscalibration. Resume after
+   #4. The offset-invariant results already in hand are in §4b.
+4. **Visual validation — NOW THE CRITICAL PATH** (§4c). Sample drawn
+   (300 images, committed), both blind rating sheets generated. Waiting
+   on the physical PERLA palette card so CL and YP can rate on LAPOP's
+   scale, then `08_visual_validation.py --analyse` for Cohen's κ
+   (threshold ≥ 0.6). This is what tells us whether D/APD levels mean
+   anything.
+5. **Manuscript** — Results section needs #3 finished, which needs #4.
 
 ## 7. Session log (chronological, so you know what already happened)
 
@@ -276,6 +315,15 @@ and none of it is a data-loss risk anymore.
   — verified independently on GitHub afterward (14 720 rows, 14 720
   unique `image_id`). The repo is a single unified history again; no
   outstanding git decisions.
+- **08-24, later the same day:** started the production analysis
+  pipeline (§6 item 3). Found and fixed three seams that made it produce
+  wrong answers silently rather than fail (D-038…D-041), then found that
+  the classifier reads ~3 PERLA points darker than LAPOP (D-043) and a
+  real `arctan2` bug in ITA (D-042). Fixed ITA, re-classified all 14 610
+  images with a PNG, rebuilt the panel. Henry's call: validate the
+  classifier against human labels before publishing any APD level. The
+  300-image sample and both blind rating sheets are ready (§4c); the
+  APD bootstrap is deliberately not run yet.
 
 ## 8. If you're an AI assistant starting fresh here
 

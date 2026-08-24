@@ -37,7 +37,28 @@ Copy every downloaded ZIP into:
 cloud_inbox
 ```
 
-## 3. Unzip
+## 3. Import automatically
+
+Use the importer for each downloaded ZIP:
+
+```powershell
+python -m uv run python scripts\import_cloud_zip.py cloud_inbox\apd_cloud_run_sd15_en_s1_part1.zip
+```
+
+The importer:
+
+- expands the ZIP under `cloud_inbox\<zip_stem>\`;
+- copies generated images and `metadata_*.parquet` into `images/main/`;
+- copies cloud logs/runs into `results/cloud_runs/<zip_stem>/`;
+- runs `scripts\merge_worker_shards.py`;
+- validates unique `image_id`s;
+- runs `scripts\09_progress_dashboard.py`;
+- runs `scripts\00_preflight.py`;
+- keeps the original ZIP unchanged.
+
+It does not commit anything.
+
+## 4. Manual fallback: unzip
 
 Each ZIP contains an `images/main` tree and a `runs/<RUN_ID>` folder. Expand
 into a temporary folder first:
@@ -58,7 +79,7 @@ If PowerShell asks about overwriting PNG files, choose overwrite only when the
 path corresponds to the same `image_id`/seed. The merge step deduplicates
 metadata by `image_id`, but image files should also be deterministic.
 
-## 4. Merge and verify
+## 5. Merge and verify manually
 
 Run:
 
@@ -76,7 +97,7 @@ Expected:
   shards after merge.
 - `00_preflight.py` has zero blocking failures.
 
-## 5. Check uniqueness and missing files
+## 6. Check uniqueness and missing files
 
 ```powershell
 @'
@@ -99,7 +120,7 @@ absolute paths from the cloud runtime. Metadata can still be analytically
 useful for generation accounting, but classification from local PNG files
 requires copied images.
 
-## 6. Rebuild the pending manifest
+## 7. Rebuild the pending manifest
 
 After each merge, rebuild the manifest so future notebooks skip completed
 images:

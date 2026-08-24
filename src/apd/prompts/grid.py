@@ -34,6 +34,7 @@ from pathlib import Path
 
 from apd.config import settings
 from apd.ground_truth.crosswalks import POC_MAPPINGS
+from apd.prompts.translations import INDIGENOUS_LANGUAGES, translate
 
 # -------------------------------------------------------------------------
 # POC grid (back-compat — keep stable; the POC artefacts depend on it).
@@ -105,6 +106,10 @@ class PromptCell:
     def prompt(self) -> str:
         if is_marker_occupation(self.occupation):
             return _build_marker_prompt(self.occupation, self.language)
+        if self.language in INDIGENOUS_LANGUAGES:
+            # Sources document occupation phrases, not a full sentence; see
+            # docs/INDIGENOUS_PROMPT_SOURCES.md.
+            return _occupation_noun(self.occupation, self.language)
         template = PROMPT_TEMPLATES.get(self.language)
         if template is None:
             raise ValueError(f"unknown language {self.language!r}")
@@ -151,6 +156,8 @@ def _occupation_noun(occupation: str, language: str) -> str:
         return m.spanish
     if language == "pt-BR":
         return m.portuguese
+    if language in INDIGENOUS_LANGUAGES:
+        return translate(occupation, language)
     raise ValueError(f"no noun mapping for language {language!r}")
 
 

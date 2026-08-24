@@ -5,11 +5,16 @@ credentials at the date noted. License and retrieval date are mandatory.
 
 ## Public microdata for ground truth
 
+Current executable production baseline: LAPOP AmericasBarometer 2023 for
+Colombia, Mexico, Brazil, and Peru. National labour surveys remain listed
+as public robustness candidates, but they are not blockers for the
+pre-registered LAPOP-based pipeline.
+
 ### Colombia
 
 | File | Origin | URL | Retrieved | License | Used in |
 |---|---|---|---|---|---|
-| LAPOP AmericasBarometer Colombia 2023 | Vanderbilt LAPOP Lab | https://www.lapopsurveys.org/data-access | TBD (POC run) | LAPOP open-data terms (free, attribution required) | POC ground truth |
+| LAPOP AmericasBarometer Colombia 2023 | Vanderbilt LAPOP Lab | https://www.lapopsurveys.org/data-access | 2026-05-15 | LAPOP open-data terms (free, attribution required) | POC and production ground truth |
 | GEIH 2023 (DANE) — pending sample evaluation | DANE | https://microdatos.dane.gov.co | TBD | DANE open-microdata licence | Excluded if registration required |
 
 ### Mexico
@@ -17,21 +22,21 @@ credentials at the date noted. License and retrieval date are mandatory.
 | File | Origin | URL | Retrieved | License | Used in |
 |---|---|---|---|---|---|
 | ENADIS 2022 (INEGI) | INEGI | https://www.inegi.org.mx/programas/enadis/2022/ | (not yet) | INEGI open-data terms | Production |
-| LAPOP Mexico 2023 | Vanderbilt LAPOP Lab | https://www.lapopsurveys.org/data-access | (not yet) | LAPOP open-data terms | Production |
+| LAPOP Mexico 2023 | Vanderbilt LAPOP Lab | https://www.lapopsurveys.org/data-access | 2026-05-15 | LAPOP open-data terms (free, attribution required) | Production ground truth |
 
 ### Brazil
 
 | File | Origin | URL | Retrieved | License | Used in |
 |---|---|---|---|---|---|
 | PNADC 2023 (IBGE) | IBGE | https://www.ibge.gov.br/estatisticas/sociais/trabalho/9171 | (not yet) | IBGE open-data terms | Production |
-| LAPOP Brazil 2023 | Vanderbilt LAPOP Lab | https://www.lapopsurveys.org/data-access | (not yet) | LAPOP open-data terms | Production |
+| LAPOP Brazil 2023 | Vanderbilt LAPOP Lab | https://www.lapopsurveys.org/data-access | 2026-05-15 | LAPOP open-data terms (free, attribution required) | Production ground truth |
 
 ### Peru
 
 | File | Origin | URL | Retrieved | License | Used in |
 |---|---|---|---|---|---|
 | ENAHO 2023 (INEI) | INEI | https://www.inei.gob.pe/microdatos | (not yet) | INEI open-data terms | Production |
-| LAPOP Peru 2023 | Vanderbilt LAPOP Lab | https://www.lapopsurveys.org/data-access | (not yet) | LAPOP open-data terms | Production |
+| LAPOP Peru 2023 | Vanderbilt LAPOP Lab | https://www.lapopsurveys.org/data-access | 2026-05-15 | LAPOP open-data terms (free, attribution required) | Production ground truth |
 
 ### Auxiliary (all four countries)
 

@@ -32,6 +32,17 @@ logger = logging.getLogger(__name__)
 API_TEMPLATE = "https://image.pollinations.ai/prompt/{prompt}"
 DEFAULT_TIMEOUT_S = 180
 MAX_RETRIES = 4
+_POLLINATIONS_SEED_MODULUS = 2**32
+
+
+def _pollinations_seed(seed: int) -> int:
+    """Map APD's long deterministic seed into Pollinations' 32-bit range.
+
+    APD image IDs retain the original seed.  This mapping only adapts the
+    provider request: the public endpoint returns HTTP 500 for the long seed
+    values used by the locked APD grid.
+    """
+    return int(seed) % _POLLINATIONS_SEED_MODULUS
 
 
 def _build_url_and_params(
@@ -44,7 +55,7 @@ def _build_url_and_params(
     url = API_TEMPLATE.format(prompt=encoded)
     params = {
         "model": model,
-        "seed": str(int(seed)),
+        "seed": str(_pollinations_seed(seed)),
         "width": str(int(width)),
         "height": str(int(height)),
         "nologo": "true",
@@ -54,6 +65,14 @@ def _build_url_and_params(
 
 
 _RETRYABLE_STATUSES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
+
+
+class PollinationsQueueFullError(RuntimeError):
+    """Pollinations free queue is currently saturated for this IP."""
+
+
+def _is_queue_full_response(status_code: int, body: str) -> bool:
+    return status_code == 402 and "queue full" in body.lower()
 
 
 class PollinationsBackend:
@@ -114,6 +133,8 @@ class PollinationsBackend:
                 backoff = min(backoff * 2, 60)
                 continue
             last_body = r.text[:300]
+            if _is_queue_full_response(r.status_code, last_body):
+                raise PollinationsQueueFullError(last_body)
             logger.error("Pollinations unexpected %s: %s", r.status_code, last_body)
             r.raise_for_status()
         raise RuntimeError(
@@ -207,6 +228,8 @@ class AsyncPollinationsBackend:
                     backoff = min(backoff * 2, 60)
                     continue
                 last_body = r.text[:300]
+                if _is_queue_full_response(r.status_code, last_body):
+                    raise PollinationsQueueFullError(last_body)
                 logger.error("Pollinations async unexpected %s: %s", r.status_code, last_body)
                 r.raise_for_status()
             raise RuntimeError(

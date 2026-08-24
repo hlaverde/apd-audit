@@ -6,7 +6,7 @@ fast and don't require OpenCV at import time.
 
 Covered:
 * ``pending_flux_cells`` filters to ``pollinations/flux`` cells only.
-* ``candidate_cells`` yields main grid first then H5.
+* ``candidate_cells`` yields main grid first, then H5 and robustness.
 * ``WorkerState.flush_shard`` writes parquet with all 19 columns.
 * ``process_cell`` calls backend + classifier and assembles a record.
 * ``_race_queue_and_shutdown`` exits early when shutdown is set.
@@ -63,10 +63,10 @@ def _no_face_classification() -> dict:
 
 
 class TestCandidateCells:
-    def test_main_before_h5(self, worker_mod) -> None:
+    def test_main_then_h5_then_robustness(self, worker_mod) -> None:
         cells = list(worker_mod.candidate_cells())
-        # Main grid (12 000) precedes H5 (320).
-        assert len(cells) == 12_000 + 320
+        # Main grid (12 000) precedes H5 (320), then robustness (2 400).
+        assert len(cells) == 12_000 + 320 + 2_400
         # First batch is all from main grid.
         first_models = {c.model for c in cells[:100]}
         assert "pollinations/flux" in first_models
@@ -78,11 +78,12 @@ class TestCandidateCells:
             n_shards=1,
             metadata_dir=tmp_path,
         )
-        # All FLUX cells in main+H5 = 3 000 main + 320 H5 = 3 320.
+        # All 200 FLUX robustness rows now have source-backed prompts,
+        # including the two documented Quechua occupations.
         # (Main grid: 25 occ × 4 lang × 4 models × 30 imgs, FLUX is 1 of 4 models.)
         assert all(c.model == worker_mod.FLUX_MODEL for c in cells)
         # H5 cells have model="pollinations/flux" too, all 320 of them.
-        assert len(cells) == 3_000 + 320
+        assert len(cells) == 3_000 + 320 + 200
 
 
 # -------------------------------------------------------------------------
@@ -155,6 +156,31 @@ async def test_process_cell_writes_png_and_record(tmp_path, monkeypatch, worker_
     # PNG written.
     png_path = Path(record["path"])
     assert png_path.exists()
+    assert png_path.read_bytes() == PNG_BYTES
+
+
+@pytest.mark.asyncio
+async def test_process_cell_uses_windows_safe_h5_directory(
+    tmp_path, monkeypatch, worker_mod
+) -> None:
+    from apd.generate.pollinations_backend import AsyncPollinationsBackend
+    from apd.prompts.grid import PromptCell
+
+    monkeypatch.setattr(worker_mod, "_classify_png", lambda p: _no_face_classification())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=PNG_BYTES, headers={"content-type": "image/png"})
+
+    state = worker_mod.WorkerState(worker_id="t", png_dir=tmp_path, shards_dir=tmp_path)
+    backend = AsyncPollinationsBackend(model="flux")
+    cell = PromptCell("marker:unmarked:CEO", "en", "MULTI", "pollinations/flux", 3)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        record = await worker_mod.process_cell(cell, backend, client, state)
+
+    assert record is not None
+    png_path = Path(record["path"])
+    assert png_path.parent.name == "marker_unmarked_CEO"
     assert png_path.read_bytes() == PNG_BYTES
 
 

@@ -100,6 +100,36 @@ class TestPromptBuilding:
         with pytest.raises(KeyError):
             cell.prompt()
 
+    @pytest.mark.parametrize(
+        ("language", "occupation", "expected"),
+        [
+            ("qu", "doctor", "hampi kamayuq"),
+            ("qu", "construction worker", "wasi ruraq"),
+            ("qu", "domestic worker", "Wasimanta llank’aq chayri wasi ruwanata ruwaq"),
+            ("qu", "nurse", "hampiq mama, hampiq tayta"),
+            ("qu", "salesperson", "qhatuq"),
+            ("qu", "street vendor", "ñanniqpi ranqhaq"),
+            ("gn", "lawyer", "moʼãhára"),
+            ("gn", "salesperson", "ñemuhára"),
+        ],
+    )
+    def test_documented_indigenous_occupation_prompts(
+        self, language: str, occupation: str, expected: str,
+    ) -> None:
+        cell = PromptCell(
+            occupation=occupation, language=language, country="MULTI",
+            model="x", seed=1,
+        )
+        assert cell.prompt() == expected
+
+    def test_undocumented_indigenous_occupation_stays_unavailable(self) -> None:
+        cell = PromptCell(
+            occupation="accountant", language="qu", country="MULTI",
+            model="x", seed=1,
+        )
+        with pytest.raises(ValueError, match="no documented qu translation"):
+            cell.prompt()
+
 
 def test_main_occupations_match_crosswalks() -> None:
     from apd.ground_truth.crosswalks import POC_MAPPINGS

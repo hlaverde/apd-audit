@@ -38,6 +38,8 @@ CLI
         --time-budget 18000          # 5 h
 """
 
+# ruff: noqa: SIM105
+
 from __future__ import annotations
 
 import argparse
@@ -60,13 +62,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from apd.config import settings  # noqa: E402
-from apd.generate.pollinations_backend import AsyncPollinationsBackend  # noqa: E402
+from apd.generate.pollinations_backend import (  # noqa: E402
+    AsyncPollinationsBackend,
+    PollinationsQueueFullError,
+)
 from apd.prompts.grid import (  # noqa: E402
     PromptCell,
     h5_cells,
     image_id_of,
     main_cells,
     pending_cells,
+    robustness_cells,
 )
 
 logging.basicConfig(
@@ -76,8 +82,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("worker")
 
-# Filter applied to the chained main+H5 grid.
+# Filter applied to the chained main+H5+robustness grids.
 FLUX_MODEL = "pollinations/flux"
+_INVALID_PATH_CHARS = '<>:"/\\|?*'
+_PATH_TRANSLATION = str.maketrans({char: "_" for char in _INVALID_PATH_CHARS})
 
 # Defaults aligned with the plan; override on the CLI.
 DEFAULT_WORKERS = 5
@@ -94,10 +102,15 @@ DEFAULT_TIME_BUDGET_S = 0  # 0 = unlimited
 
 
 def candidate_cells() -> Iterable[PromptCell]:
-    """Main grid first, then H5. Order matters because pending_cells
-    preserves iteration order — main confirmatory cells take priority."""
+    """Main grid first, then H5, then robustness.
+
+    ``pending_cells`` preserves iteration order, so the production grid
+    retains priority while the local Pollinations worker can also consume
+    the robustness rows assigned to it.
+    """
     yield from main_cells()
     yield from h5_cells()
+    yield from robustness_cells()
 
 
 def pending_flux_cells(
@@ -126,7 +139,18 @@ def pending_flux_cells(
         shard_id=shard_id,
         n_shards=n_shards,
     )
-    return [c for c in all_pending if c.model == FLUX_MODEL]
+    ready: list[PromptCell] = []
+    for cell in all_pending:
+        if cell.model != FLUX_MODEL:
+            continue
+        try:
+            cell.prompt()
+        except ValueError:
+            # Indigenous-language rows without a documented translation stay
+            # pending until the source-backed prompt table is extended.
+            continue
+        ready.append(cell)
+    return ready
 
 
 # -------------------------------------------------------------------------
@@ -214,6 +238,7 @@ class WorkerState:
         self.records: list[dict] = []
         self.total_done: int = 0
         self.since_last_push: int = 0
+        self.consecutive_failures: int = 0
         self.shutdown = asyncio.Event()
         self.last_checkpoint_at: float = time.monotonic()
 
@@ -244,7 +269,7 @@ def _append_cost_log(cost_log: Path, n_imgs: int) -> None:
         f"| {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())} | shift Layer-2 worker | "
         f"Pollinations free | {n_imgs} imgs / shard checkpoint | $0.00 | **$0.00** |\n"
     )
-    try:
+    try:  # noqa: SIM105 - clearer with the Windows-specific explanatory comment below.
         with cost_log.open("a", encoding="utf-8") as fh:
             fh.write(line)
     except OSError as exc:
@@ -254,6 +279,12 @@ def _append_cost_log(cost_log: Path, n_imgs: int) -> None:
 # -------------------------------------------------------------------------
 # Generation pipeline (per cell)
 # -------------------------------------------------------------------------
+
+
+def _safe_occupation_dirname(occupation: str) -> str:
+    """Return a deterministic, Windows-safe directory component."""
+    safe = occupation.translate(_PATH_TRANSLATION).replace(" ", "_").rstrip(". ")
+    return safe or "_"
 
 
 async def process_cell(
@@ -266,15 +297,22 @@ async def process_cell(
     ``None`` on failure (logged)."""
     try:
         result = await backend.generate(cell.prompt(), cell.seed, client=client)
+    except PollinationsQueueFullError as exc:
+        log.warning("Pollinations free queue is full; pausing worker: %s", exc)
+        raise
     except Exception as exc:
         log.error("generate failed for %s seed=%s: %s", cell.occupation, cell.seed, exc)
         return None
     # Write PNG locally (Windows safe path; D-017 OpenCV Unicode workaround
     # handled inside classifiers).
-    occ_dir = state.png_dir / cell.occupation.replace(" ", "_")
-    occ_dir.mkdir(parents=True, exist_ok=True)
+    occ_dir = state.png_dir / _safe_occupation_dirname(cell.occupation)
     png_path = occ_dir / f"seed_{cell.seed}.png"
-    png_path.write_bytes(result.image_bytes)
+    try:
+        occ_dir.mkdir(parents=True, exist_ok=True)
+        png_path.write_bytes(result.image_bytes)
+    except OSError as exc:
+        log.error("write failed for %s seed=%s: %s", cell.occupation, cell.seed, exc)
+        return None
     # Classify in a worker thread (sync + IO-bound + CPU-bound).
     try:
         classification = await asyncio.to_thread(_classify_png, png_path)
@@ -294,7 +332,7 @@ async def process_cell(
             "n_concordant": 0,
             "concordant_2of3": False,
         }
-    record = {
+    return {
         "image_id": image_id_of(cell),
         "model": cell.model,
         "occupation": cell.occupation,
@@ -309,7 +347,6 @@ async def process_cell(
         "timestamp": int(time.time()),
         **classification,
     }
-    return record
 
 
 async def worker_loop(
@@ -318,6 +355,8 @@ async def worker_loop(
     backend: AsyncPollinationsBackend,
     client: httpx.AsyncClient,
     state: WorkerState,
+    max_consecutive_failures: int,
+    queue_full_wait_s: int,
 ) -> None:
     while not state.shutdown.is_set():
         try:
@@ -328,11 +367,22 @@ async def worker_loop(
             queue.task_done()
             break
         try:
-            record = await process_cell(cell, backend, client, state)
+            try:
+                record = await process_cell(cell, backend, client, state)
+            except PollinationsQueueFullError:
+                await queue.put(cell)
+                wait_s = max(1, queue_full_wait_s)
+                log.warning(
+                    "Pollinations queue full; requeued current cell and sleeping %ds",
+                    wait_s,
+                )
+                await asyncio.sleep(wait_s)
+                continue
             if record is not None:
                 state.records.append(record)
                 state.total_done += 1
                 state.since_last_push += 1
+                state.consecutive_failures = 0
                 if state.total_done % 5 == 0:
                     log.info(
                         "[w%d] %d done — pending in queue: %d",
@@ -340,6 +390,15 @@ async def worker_loop(
                         state.total_done,
                         queue.qsize(),
                     )
+            if record is None:
+                state.consecutive_failures += 1
+                if state.consecutive_failures >= max_consecutive_failures:
+                    log.warning(
+                        "%d consecutive generation failures; initiating shutdown",
+                        state.consecutive_failures,
+                    )
+                    state.shutdown.set()
+                    break
         finally:
             queue.task_done()
 
@@ -476,7 +535,17 @@ async def amain(args: argparse.Namespace) -> int:
             push_loop(state, args.push_every, do_push=not args.no_push),
         )
         worker_tasks = [
-            asyncio.create_task(worker_loop(i, queue, backend, client, state))
+            asyncio.create_task(
+                worker_loop(
+                    i,
+                    queue,
+                    backend,
+                    client,
+                    state,
+                    args.max_consecutive_failures,
+                    args.queue_full_wait,
+                )
+            )
             for i in range(args.workers)
         ]
         try:
@@ -524,6 +593,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--no-push", action="store_true", help="skip git commit + push (write shard locally only)"
+    )
+    parser.add_argument(
+        "--max-consecutive-failures",
+        type=int,
+        default=5,
+        help="stop after this many consecutive failed generations",
+    )
+    parser.add_argument(
+        "--queue-full-wait",
+        type=int,
+        default=300,
+        help="seconds to wait before retrying when the free Pollinations queue is full",
     )
     args = parser.parse_args(argv)
     try:

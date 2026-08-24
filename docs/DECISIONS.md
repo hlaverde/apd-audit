@@ -1,5 +1,114 @@
 # Decisions log
 
+## 2026-08-18 - Complete source-backed Quechua robustness prompts
+
+### D-035: Enable the two remaining Quechua occupation phrases
+
+**Decision.** Enable Quechua `domestic worker` as `Wasimanta llank’aq chayri
+wasi ruwanata ruwaq` and `street vendor` as `ñanniqpi ranqhaq` for the
+exploratory robustness grid. Both phrases are taken from the official Chile
+Census 2024 Quechua questionnaire and are paired with their exact Spanish
+categories/examples in the official Spanish questionnaire.
+
+**Rationale.** This public bilingual government instrument supplies the
+specific occupational meanings that were missing under D-034. Enabling them
+releases the final 80 pre-specified robustness cells without changing the
+grid, models, seeds, hypotheses, or confirmatory prompts.
+
+**Guardrail.** These phrases remain exploratory and `unreviewed`; they must
+not be described as native-speaker validated. The source URL and file hash are
+recorded in `docs/INDIGENOUS_PROMPT_SOURCES.md`.
+
+## 2026-08-13 - Source-backed expansion of exploratory indigenous prompts
+
+### D-034: Enable six newly documented occupation phrases, retain two unavailable Quechua cells
+
+**Decision.** Following explicit authorization to research and register public
+sources, add documented exploratory terms for Quechua `nurse` and
+`salesperson`, and Guarani `construction worker`, `domestic worker`, `nurse`,
+and `street vendor`. The public source register, translation registry, and
+tests identify the exact terms. Quechua `domestic worker` and `street vendor`
+remain unavailable.
+
+**Rationale.** This turns 240 of 320 missing robustness cells into
+source-traceable candidates without changing the locked confirmatory grid or
+inventing translations. The remaining 80 cells have no sufficiently specific
+public lexical source located during this review.
+
+**Guardrail.** The two remaining Quechua cells may be enabled only after a
+public, citable lexical source is added with another decision-log entry. No
+generic-worker, gendered, or inferred substitute is permitted.
+
+## 2026-07-23 - Source-traceable exploratory Quechua and Guarani prompts
+
+### D-033: Enable only publicly documented indigenous-language occupation phrases
+
+**Decision.** With explicit user authorization, the robustness grid may render
+the documented `qu` and `gn` occupation phrases listed in
+`docs/INDIGENOUS_PROMPT_SOURCES.md`. These prompts are occupation phrases only,
+are recorded as exploratory/unreviewed, and leave every occupation without a
+sufficiently specific public lexical source unavailable.
+
+**Rationale.** This implements the exploratory pathway in `docs/DESIGN.md`
+section 5 without inventing translations, changing the locked confirmatory
+prompt grid, or treating a source glossary as native-speaker validation. The
+source register provides public URLs, a source revision/hash, and the exact
+lexical mapping used for every enabled cell.
+
+**Guardrail.** The legacy `qu` grid code is explicitly tied to the Quechua
+Sureno (`quz`) source variety in the register. No generic-worker, gendered,
+or inferred substitute may be added for the remaining cells without a public
+source and a new decision.
+
+## 2026-07-17 — Retired SD 2.1 source resolution
+
+### D-032: Preserve the locked SD 2.1 model identity while recording a verified mirror source
+
+**Decision.** The locked manifest continues to identify the robustness model as
+``stabilityai/stable-diffusion-2-1``. Its retired Hub repository is resolved at
+execution time to the public ``sd2-community/stable-diffusion-2-1`` mirror, with
+``model_source`` persisted in each generated metadata row.
+
+**Rationale.** The official repository now returns HTTP 401/404 and cannot be
+requested or authenticated. The mirror's ``v2-1_768-ema-pruned.ckpt`` has
+SHA-256 ``ad2a33c361c1f593c4a1fb32ea81afce2b5bb7d1983c6b94793a26a3b54b08a0``,
+matching the independently published historical checksum for that SD 2.1
+checkpoint. This restores public, zero-cost reproducibility without changing
+prompts, seeds, cells, APD calculations, or the requested model identity.
+
+**Guardrail.** The source override is limited to this retired identifier. Any
+future source change requires a new decision and checksum evidence.
+
+## 2026-06-02 — Distributed free-tier generation hardening
+
+### D-031: Manifest-driven Kaggle/Colab runners for SD-family generation
+
+**Decision.** Production image generation now uses a manifest-driven
+distributed runner for free Kaggle/Colab GPU sessions. The runner reads
+``results/missing_generation_manifest_2026-06-02.csv``, selects a
+deterministic ``image_id`` shard, writes merge-compatible metadata shards,
+and exports a ZIP for local consolidation. Local Windows remains the
+sequential ``pollinations/flux`` route with ``--workers 1`` and no automatic
+push.
+
+**Rationale.** The local Pollinations route is stable but too slow for the
+full 14 720-image grid if used alone. Kaggle/Colab can generate SD-family
+models with local ``diffusers`` under free GPU quotas while preserving the
+locked scientific design: same prompt grid, same seeds, same ``target_n``,
+same APD estimator, same LAPOP ground truth, and zero monetary cost.
+
+**Guardrails.**
+
+* No paid APIs, paid notebooks, cloud rentals, or multi-account limit
+  evasion.
+* No raw LAPOP redistribution to cloud notebooks; notebooks need only the
+  manifest and generation metadata.
+* No invented translations for ``qu`` / ``gn`` robustness rows. Those rows
+  remain in the manifest with ``prompt_status=unavailable`` until documented
+  translations exist.
+* ``merge_worker_shards.py`` remains the only local consolidation path and
+  deduplicates by ``image_id``.
+
 Append-only journal of analytical and engineering decisions, in chronological
 order. Every entry must have a date, a decision, and a short rationale that
 references the binding spec when relevant.

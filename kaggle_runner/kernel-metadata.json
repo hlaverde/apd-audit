@@ -1,0 +1,19 @@
+{
+    "id":  "henrylaverde/apd-batch-final80-sd35-qu20-1",
+    "title":  "apd batch final80 sd35 qu20 1",
+    "code_file":  "script.py",
+    "language":  "python",
+    "kernel_type":  "script",
+    "is_private":  true,
+    "enable_gpu":  true,
+    "enable_internet":  true,
+    "dataset_sources":  [
+
+                        ],
+    "competition_sources":  [
+
+                            ],
+    "kernel_sources":  [
+
+                       ]
+}

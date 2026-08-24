@@ -33,12 +33,20 @@ from .hf_backend import GenerationResult
 
 logger = logging.getLogger(__name__)
 
+MODEL_SOURCE_OVERRIDES = {
+    # The official SD 2.1 Hub repository was retired after the grid was
+    # locked. This public mirror exposes the historical 768 EMA checkpoint
+    # under the independently documented SHA-256 recorded in D-032.
+    "stabilityai/stable-diffusion-2-1": "sd2-community/stable-diffusion-2-1",
+}
+
 
 class LocalBackend:
     name = "local"
 
     def __init__(self, model: str, device: str | None = None) -> None:
         self.model = model
+        self.model_source = MODEL_SOURCE_OVERRIDES.get(model, model)
         # Lazy-import torch only when this backend is actually used so that
         # importing the package does not pull torch into the dependency tree
         # of users running the HF-only path.
@@ -47,16 +55,51 @@ class LocalBackend:
 
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         dtype = torch.float16 if self.device == "cuda" else torch.float32
-        logger.info("Loading %s on %s (dtype=%s)", model, self.device, dtype)
+        logger.info(
+            "Loading requested model %s from %s on %s (dtype=%s)",
+            model,
+            self.model_source,
+            self.device,
+            dtype,
+        )
         # AutoPipelineForText2Image reads ``model_index.json`` from the
         # checkpoint and instantiates the correct subclass: SD 1.x / 2.x →
         # StableDiffusionPipeline; SDXL → StableDiffusionXLPipeline; SD 3.x →
         # StableDiffusion3Pipeline; FLUX → FluxPipeline; Kandinsky →
         # KandinskyV22Pipeline; etc.
-        self.pipe = AutoPipelineForText2Image.from_pretrained(
-            model,
-            torch_dtype=dtype,
-        ).to(self.device)
+        pipeline_cls = AutoPipelineForText2Image
+        if model == "BAAI/AltDiffusion-m18":
+            from diffusers import AltDiffusionPipeline  # noqa: WPS433
+            from diffusers.pipelines.deprecated.alt_diffusion.modeling_roberta_series import (  # noqa: WPS433
+                RobertaSeriesModelWithTransformation,
+            )
+            from transformers import XLMRobertaTokenizer  # noqa: WPS433
+
+            pipeline_cls = AltDiffusionPipeline
+        load_kwargs = {"torch_dtype": dtype}
+        if model == "BAAI/AltDiffusion-m18":
+            # The checkpoint's 2023 model_index references the retired
+            # ``alt_diffusion`` dynamic module. Supplying these two public
+            # components explicitly keeps modern diffusers from resolving it.
+            load_kwargs["text_encoder"] = RobertaSeriesModelWithTransformation.from_pretrained(
+                model, subfolder="text_encoder", torch_dtype=dtype
+            )
+            load_kwargs["tokenizer"] = XLMRobertaTokenizer.from_pretrained(
+                model, subfolder="tokenizer"
+            )
+        if model == "kandinsky-community/kandinsky-3":
+            load_kwargs["variant"] = "fp16"
+            load_kwargs["use_safetensors"] = True
+        self.pipe = pipeline_cls.from_pretrained(
+            self.model_source,
+            **load_kwargs,
+        )
+        if model == "kandinsky-community/kandinsky-3" and self.device == "cuda":
+            self.pipe.enable_sequential_cpu_offload()
+        elif model == "stabilityai/stable-diffusion-3.5-medium" and self.device == "cuda":
+            self.pipe.enable_model_cpu_offload()
+        else:
+            self.pipe = self.pipe.to(self.device)
         # SD 1.x and SD 2.x ship a safety_checker we disable for the audit
         # (DESIGN.md §6.4: we report no_face rates as a diagnostic, we don't
         # want the safety filter dropping images silently). Other pipeline

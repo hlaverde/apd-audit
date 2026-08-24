@@ -56,6 +56,16 @@ class TestBuildUrlAndParams:
             "private": "true",
         }
 
+    def test_long_apd_seed_is_mapped_to_provider_range(self) -> None:
+        _, params = _build_url_and_params(
+            "test",
+            model="flux",
+            seed=202_625_140_000_000,
+            width=512,
+            height=512,
+        )
+        assert params["seed"] == str(202_625_140_000_000 % 2**32)
+
 
 # -------------------------------------------------------------------------
 # AsyncPollinationsBackend — success

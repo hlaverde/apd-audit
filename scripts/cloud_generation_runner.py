@@ -78,6 +78,33 @@ def local_metadata_paths(output_dir: Path) -> list[Path]:
     return paths
 
 
+def normalize_manifest(manifest: pd.DataFrame, *, default_grid: str | None) -> pd.DataFrame:
+    df = manifest.copy()
+    df.columns = [str(col).strip() for col in df.columns]
+    if "grid" not in df.columns:
+        if "shard_group" in df.columns:
+            df["grid"] = df["shard_group"].astype(str).str.split("|", n=1).str[0]
+        elif default_grid:
+            df["grid"] = default_grid
+    required = {
+        "model",
+        "language",
+        "grid",
+        "recommended_runner",
+        "prompt_status",
+        "image_id",
+        "occupation",
+        "seed",
+    }
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise RuntimeError(
+            "Manifest is missing required columns "
+            f"{missing}; available columns are {list(df.columns)}"
+        )
+    return df
+
+
 def select_rows(
     manifest: pd.DataFrame,
     *,
@@ -87,15 +114,15 @@ def select_rows(
     n_shards: int,
     max_images: int,
     grid: str | None,
-    runner: str | None,
+    recommended_runner_filter: str | None,
     done_ids: set[str],
 ) -> pd.DataFrame:
-    df = manifest.copy()
+    df = normalize_manifest(manifest, default_grid=grid)
     df = df[(df["model"] == model) & (df["language"] == language)]
     if grid:
         df = df[df["grid"] == grid]
-    if runner:
-        df = df[df["recommended_runner"] == runner]
+    if recommended_runner_filter:
+        df = df[df["recommended_runner"] == recommended_runner_filter]
     df = df[df["prompt_status"] == "ok"]
     df = df[~df["image_id"].astype(str).isin(done_ids)]
     df = df[df["image_id"].astype(str).map(lambda x: stable_shard(x, n_shards) == shard_id)]
@@ -110,10 +137,18 @@ def image_path_for(row: pd.Series, output_dir: Path) -> Path:
     return output_dir / occ / f"seed_{int(row['seed'])}.png"
 
 
-def metadata_row(row: pd.Series, png_path: Path, sha256: str, backend: str, duration_s: float) -> dict:
+def metadata_row(
+    row: pd.Series,
+    png_path: Path,
+    sha256: str,
+    backend: str,
+    duration_s: float,
+    model_source: str | None = None,
+) -> dict:
     return {
         "image_id": row["image_id"],
         "model": row["model"],
+        "model_source": model_source or row["model"],
         "occupation": row["occupation"],
         "language": row["language"],
         "country_proxy": row["country"],
@@ -173,13 +208,14 @@ def run(args: argparse.Namespace) -> int:
         n_shards=args.n_shards,
         max_images=args.max_images_per_run,
         grid=args.grid,
-        runner=args.runner,
+        recommended_runner_filter=args.recommended_runner_filter,
         done_ids=done_ids,
     )
     log.info("selected %d rows for %s %s shard %d/%d", len(selected), args.model, args.language, args.shard_id, args.n_shards)
     if selected.empty:
         write_cost_log(cost_path, runner=args.runner, n_images=0, elapsed_s=time.time() - started)
-        make_zip(output_root, run_dir / f"apd_{args.runner}_{args.run_id}")
+        if not args.skip_zip:
+            make_zip(output_root, run_dir / f"apd_{args.runner}_{args.run_id}")
         return 0
 
     records: list[dict] = []
@@ -207,7 +243,14 @@ def run(args: argparse.Namespace) -> int:
             assert backend is not None
             result = backend.generate(str(row["prompt"]), int(row["seed"]))
             png_path.write_bytes(result.image_bytes)
-            rec = metadata_row(row, png_path, result.sha256, result.backend, result.duration_s)
+            rec = metadata_row(
+                row,
+                png_path,
+                result.sha256,
+                result.backend,
+                result.duration_s,
+                backend.model_source,
+            )
 
         if args.classify and not args.dry_run:
             try:
@@ -230,6 +273,7 @@ def run(args: argparse.Namespace) -> int:
             [
                 f"run_id={args.run_id}",
                 f"runner={args.runner}",
+                f"recommended_runner_filter={args.recommended_runner_filter}",
                 f"model={args.model}",
                 f"language={args.language}",
                 f"shard={args.shard_id}/{args.n_shards}",
@@ -241,8 +285,11 @@ def run(args: argparse.Namespace) -> int:
         + "\n",
         encoding="utf-8",
     )
-    zip_path = make_zip(output_root, run_dir / f"apd_{args.runner}_{args.run_id}")
-    log.info("zip ready: %s", zip_path)
+    if args.skip_zip:
+        log.info("skip internal zip requested; output_root remains unpacked for caller packaging")
+    else:
+        zip_path = make_zip(output_root, run_dir / f"apd_{args.runner}_{args.run_id}")
+        log.info("zip ready: %s", zip_path)
     return 0
 
 
@@ -252,6 +299,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--existing-metadata", type=Path, default=Path("images/main/metadata.parquet"))
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--runner", choices=["kaggle", "colab"], required=True)
+    parser.add_argument("--recommended-runner-filter", choices=["kaggle", "colab"], default=None)
     parser.add_argument("--run-id", default=time.strftime("%Y%m%d_%H%M%S", time.gmtime()))
     parser.add_argument("--model", required=True)
     parser.add_argument("--language", required=True)
@@ -261,6 +309,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--max-images-per-run", type=int, default=50)
     parser.add_argument("--checkpoint-every", type=int, default=5)
     parser.add_argument("--classify", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--skip-zip", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if not (0 <= args.shard_id < args.n_shards):

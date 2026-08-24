@@ -17,7 +17,7 @@ and produces the empirical material for a manuscript targeting
 > pre-registered plan are documented in
 > [`docs/DECISIONS.md`](docs/DECISIONS.md) with their commit timestamps.
 
-> Authors — Carlos Alfonso Laverde Rodríguez · Yenny Katherine Parra Acosta ·
+> Authors — Carlos Alfonso Laverde Rodríguez ·
 > Henry Laverde Rojas. Universidad Militar Nueva Granada.
 
 ## The three non-negotiable constraints

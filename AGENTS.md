@@ -1,6 +1,6 @@
-# CLAUDE.md — guide for AI assistants and human coauthors
+# AGENTS.md — guide for AI assistants and human coauthors
 
-This file is read by AI coding assistants (Claude Code, etc.) and by
+This file is read by AI coding assistants (Codex, etc.) and by
 human coauthors joining the repo. Keep it short: pointers and rules,
 not tutorials.
 

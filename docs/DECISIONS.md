@@ -1,5 +1,47 @@
 # Decisions log
 
+## 2026-08-24 - Unify the two divergent git branches
+
+### D-037: Merge `main` into `cloud-generation-20260602` with the `ours` strategy, then fast-forward `main`
+
+**Decision.** On `cloud-generation-20260602`, run
+`git merge main -s ours` — a merge commit that records `main`'s 88
+GitHub-Actions-authored commits as ancestors (preserving their audit
+trail: timestamps, run IDs, individual generation batches) while
+leaving this branch's file tree completely untouched. Then fast-forward
+local `main` to that merge commit and push it, so the two branches stop
+diverging.
+
+**Rationale.** The repository had accumulated two branches doing
+unrelated work: `cloud-generation-20260602` (nearly all real
+generation/analysis work, 14 720-row `metadata.parquet`) and `main`
+(only Layer-1's GitHub Actions cron auto-commits, 1 743-row
+`metadata.parquet`, pushed directly by the CI bot — no PR ever
+existed between them). Before merging, both branches' `metadata.parquet`
+were extracted directly from GitHub (`git show origin/<branch>:path`)
+and compared by `image_id`: **0 rows were exclusive to `main`** — every
+one of its 1 743 rows already exists in `cloud-generation-20260602`'s
+14 720. The two branches'
+`.github/workflows/generate-flux-pollinations.yml` files were also
+byte-identical. With no data or code to reconcile, a content-level
+merge would only add merge-conflict risk for zero benefit; `-s ours`
+gets the equivalent outcome (one shared history going forward) without
+touching a single file.
+
+**Verification.** Post-merge, `images/main/metadata.parquet` on
+`cloud-generation-20260602` still has exactly 14 720 rows / 14 720
+unique `image_id` (no change from pre-merge), `git merge-base
+--is-ancestor main HEAD` confirms `main` is now an ancestor (so the
+`main` fast-forward is a true fast-forward, not a rewrite), and the
+full test suite still passes (248 passed, 1 skipped — unchanged from
+pre-merge).
+
+**Guardrail.** Because `main` is the GitHub Actions cron's trigger
+branch and the shared/public default branch, pushing the fast-forwarded
+`main` to `origin` requires the user's explicit go-ahead even though
+the merge itself carried no data risk — see `docs/PROJECT_STATUS.md`
+section 5 for the standing house rule.
+
 ## 2026-08-24 - Repair stale PNG paths left by the cloud-import workflow
 
 ### D-036: Rewrite metadata `path` column to the canonical local layout

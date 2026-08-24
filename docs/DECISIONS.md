@@ -1,5 +1,80 @@
 # Decisions log
 
+## 2026-08-24 - Wire the production analysis pipeline to the real 14 720-image grid
+
+### D-038: Tabulate the main, robustness and H5 grids separately
+
+**Decision.** `scripts/05_build_panel_main.py` labels every panel row
+`main` / `robustness` / `h5` via `apd.prompts.grid.classify_grid`, and
+`scripts/06_compute_apd_main.py` writes `results/tables/apd_main.csv`
+from the main grid only, `apd_robustness.csv` from the robustness grid,
+and excludes H5 from both.
+
+**Rationale.** All three grids write into the same
+`images/main/metadata.parquet`, so the panel mixed them: 12 000 main +
+2 400 robustness + 320 H5 = 14 720. They are not comparable in one
+table. Main-grid cells audit all 25 occupations and their status
+weights sum to 1.0; robustness cells audit 10 occupations and sum to
+**0.4246–0.4292**, so `APD = Σ w·D·sign(Δ)` is mechanically shrunk to
+~42% of a main-grid value — a robustness model would look less biased
+purely because it was run on fewer occupations. The H5 rows carry
+synthetic `marker:<MARKER>:<occupation>` keys that appear in neither
+the ground truth nor the weight table; they were silently dropped from
+every calculation while still inflating each cell's reported
+`n_images`.
+
+**Open for the author.** Whether to renormalise weights within each
+cell's audited occupation set (`w' = w / Σw`), which would make
+robustness and main APD directly comparable at the cost of departing
+from the pre-registered formula. Not done here — the pre-registered
+definition is kept and the incomparability is made visible instead.
+
+### D-039: `country`, not `country_proxy`, is the panel's cell key
+
+**Decision.** `build_panel` renames `country_proxy` to `country`, and
+drops metadata's copies of the classifier columns before merging the
+phenotype table.
+
+**Rationale.** Two seams between the generation and analysis halves of
+the codebase were unconnected, so the production pipeline could not run
+at all. (1) Generation writes `country_proxy`; every analysis consumer —
+`bootstrap_apd_by_cell`'s cell keys, `estimate/h3.py`,
+`validate/sampling.py`, ground truth, status weights — keys on
+`country`, so the APD step raised `KeyError: panel missing cell keys:
+['country']`. (2) Since D-028 the metadata already carries the 12
+classifier columns, so merging it with the phenotype table forked every
+one of them into `_x`/`_y`; `algorithmic_distribution` would then find
+no `perla_consensus` column and fall back to a **uniform** f_alg,
+silently manufacturing a null result. Both are fixed at the panel seam.
+
+### D-040: MULTI cells are audited against a respondent-weighted pool of the four countries
+
+**Decision.** `pool_ground_truth` collapses the four countries' f_emp
+into one distribution per occupation, weighted by `n_respondents`.
+`_ground_truth_for_cell` returns it for `country="MULTI"`.
+
+**Rationale.** English and indigenous-language cells carry
+`country="MULTI"` because no single national labour market backs them.
+The previous code returned the *un-pooled* frame for those cells, which
+stacked four 11-tone distributions into a 44-row block per occupation.
+`wasserstein1_perla` then raised `shape mismatch: p=(11,), q=(44,)`,
+which `bootstrap_apd_by_cell` caught and logged as "bootstrap failed
+for cell … — skipping". Every English and indigenous-language cell
+would have been dropped from the results table without an error. That
+is 4 of 16 main cells and 12 of 24 robustness cells.
+
+### D-041: `04_classify_main.py` extracts the inline classifier columns instead of re-classifying
+
+**Decision.** When the metadata already carries the classifier columns
+(the D-028 self-contained-shard architecture), the script selects them
+out. It falls back to classifying from the PNG only for rows that lack
+them.
+
+**Rationale.** Re-deriving them would recompute identical values —
+verified on a 40-image sample, where the recomputed consensus matched
+the stored value in 40/40 cases — at ~0.35 s/image, i.e. ~85 minutes,
+and would fail for the 110 rows whose PNG is gone (D-036).
+
 ## 2026-08-24 - Unify the two divergent git branches
 
 ### D-037: Merge `main` into `cloud-generation-20260602` with the `ours` strategy, then fast-forward `main`

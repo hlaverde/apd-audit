@@ -17,10 +17,24 @@ import pandas as pd
 
 
 def build_panel(metadata_path: Path, phenotype_path: Path) -> pd.DataFrame:
-    """Inner-join image metadata × phenotype on ``image_id``."""
+    """Join image metadata × phenotype on ``image_id``.
+
+    Emits ``country`` (not ``country_proxy``): the generation side records
+    the country proxy under its own name, while every analysis consumer —
+    ground truth, status weights, the APD cell keys, H3 — keys on
+    ``country``. The panel is the seam, so the rename happens here.
+    """
     meta = pd.read_parquet(metadata_path)
     pheno = pd.read_parquet(phenotype_path)
-    return meta.merge(pheno, on="image_id", how="left", validate="one_to_one")
+    # Since D-028 the metadata shards carry the classifier columns inline.
+    # Drop metadata's copies so the merge can't fork them into _x/_y — a
+    # silent fork would strip `perla_consensus` and make
+    # `algorithmic_distribution` fall back to uniform.
+    redundant = (set(meta.columns) & set(pheno.columns)) - {"image_id"}
+    panel = meta.drop(columns=sorted(redundant)).merge(
+        pheno, on="image_id", how="left", validate="one_to_one",
+    )
+    return panel.rename(columns={"country_proxy": "country"})
 
 
 def algorithmic_distribution(

@@ -412,6 +412,23 @@ def expected_robustness_grid_size() -> int:
     return s1 + s2
 
 
+def classify_grid(occupation: str, language: str, model: str) -> str:
+    """Return which grid a generated row belongs to: main, robustness or h5.
+
+    All three grids write into the same ``images/main/metadata.parquet``,
+    but they are separate analyses: the main grid carries the full 25
+    occupations (status weights sum to 1), robustness covers 10, and H5
+    holds marker-encoded occupation keys that no ground truth or weight
+    table contains. Mixing them in one APD table would put cells with
+    incomparable weight mass side by side.
+    """
+    if is_marker_occupation(occupation):
+        return "h5"
+    if model in ROBUSTNESS_MODELS_EXTRA or language in ROBUSTNESS_LANGUAGES_INDIGENOUS:
+        return "robustness"
+    return "main"
+
+
 # -------------------------------------------------------------------------
 # Helpers for multi-worker generation (Layer 1 GH Actions / Layer 2 local
 # async / Layer 3 Kaggle). These are branch-independent: they parameterise

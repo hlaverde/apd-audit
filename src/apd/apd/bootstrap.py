@@ -170,6 +170,104 @@ def bootstrap_apd(
     return out
 
 
+def pool_ground_truth(ground_truth: pd.DataFrame) -> pd.DataFrame:
+    """Collapse a multi-country f_emp into one distribution per occupation.
+
+    Each country's f_emp is weighted by its respondent count, which
+    reconstructs the distribution of the pooled sample rather than giving
+    a 700-respondent country the same say as a 275-respondent one.
+    """
+    gt = ground_truth.copy()
+    if "n_respondents" not in gt.columns:
+        gt["n_respondents"] = 1.0
+    gt["_w"] = gt["n_respondents"].astype(float)
+    gt["_pw"] = gt["prob"].astype(float) * gt["_w"]
+    agg = {"_pw": "sum", "_w": "sum"}
+    if "weight" in gt.columns:
+        # Status weights are rank-based and country-invariant, so the mean
+        # is exact rather than a compromise.
+        agg["weight"] = "mean"
+    pooled = gt.groupby(["occupation", "perla_tone"], as_index=False).agg(agg)
+    pooled["prob"] = pooled["_pw"] / pooled["_w"]
+    pooled["country"] = "MULTI"
+    return pooled.drop(columns=["_pw", "_w"])
+
+
+def _ground_truth_for_cell(cell: dict, ground_truth: pd.DataFrame) -> pd.DataFrame:
+    """Restrict f_emp to the cell's country — the only cell key it carries.
+
+    English and indigenous-language cells are generated with
+    ``country="MULTI"`` (no single national labour market backs them), so
+    they are audited against the respondent-weighted pool of all four
+    countries. Returning the un-pooled frame would stack four 11-tone
+    distributions into one 44-row block and every such cell would fail
+    the f_alg/f_emp shape check.
+    """
+    if "country" not in cell or "country" not in ground_truth.columns:
+        return ground_truth
+    sub = ground_truth[ground_truth["country"] == cell["country"]]
+    if sub.empty and cell["country"] == "MULTI":
+        return pool_ground_truth(ground_truth)
+    return sub
+
+
+def per_occupation_panel(
+    panel: pd.DataFrame,
+    ground_truth: pd.DataFrame,
+    *,
+    cell_keys: tuple[str, ...] = ("country", "language", "model"),
+    consensus_column: str = "perla_consensus",
+) -> pd.DataFrame:
+    """One row per (cell × occupation) carrying D, Δ and the status weight.
+
+    The cell-level APD table collapses each cell to a single scalar, which
+    is too coarse for H1/H2: the pooled gradient regresses Δ(o) on w(o)
+    across every occupation in every cell. This builds that long panel.
+    Point estimates only — H2's uncertainty comes from its cluster-robust
+    standard errors, not from the APD bootstrap.
+    """
+    cell_keys = tuple(cell_keys)
+    missing = set(cell_keys) - set(panel.columns)
+    if missing:
+        raise KeyError(f"panel missing cell keys: {sorted(missing)}")
+
+    rows: list[dict] = []
+    for cell_vals, sub_panel in panel.groupby(list(cell_keys), sort=True):
+        if not isinstance(cell_vals, tuple):
+            cell_vals = (cell_vals,)
+        cell = dict(zip(cell_keys, cell_vals, strict=True))
+        sub_gt = _ground_truth_for_cell(cell, ground_truth)
+        if sub_gt.empty:
+            continue
+        for occ in sub_gt["occupation"].unique():
+            occ_rows = sub_panel[sub_panel["occupation"] == occ]
+            if occ_rows.empty:
+                continue
+            gt_occ = sub_gt[sub_gt["occupation"] == occ].sort_values("perla_tone")
+            f_alg = algorithmic_distribution(occ_rows, occ, column=consensus_column)
+            m = compute_occupation_metrics(
+                occ,
+                f_alg,
+                gt_occ["prob"].to_numpy(dtype=float),
+                float(gt_occ["weight"].iloc[0]),
+            )
+            rows.append(
+                {
+                    **cell,
+                    "occupation": occ,
+                    "D": m.D,
+                    "delta": m.delta,
+                    "weight": m.weight,
+                    "signed_D": m.signed_D,
+                    "n_images": int(len(occ_rows)),
+                    "n_faces": int(occ_rows["has_face"].fillna(False).astype(bool).sum())
+                    if "has_face" in occ_rows.columns
+                    else int(len(occ_rows)),
+                },
+            )
+    return pd.DataFrame(rows)
+
+
 def bootstrap_apd_by_cell(
     panel: pd.DataFrame,
     ground_truth: pd.DataFrame,
@@ -205,16 +303,7 @@ def bootstrap_apd_by_cell(
         if not isinstance(cell_vals, tuple):
             cell_vals = (cell_vals,)
         cell = dict(zip(cell_keys, cell_vals, strict=True))
-        # Restrict ground truth to this cell's country (the only key
-        # ground_truth carries). Languages and models are not in f_emp.
-        sub_gt = ground_truth
-        if "country" in cell and "country" in sub_gt.columns:
-            country_val = cell["country"]
-            sub_gt = sub_gt[sub_gt["country"] == country_val]
-            if sub_gt.empty and country_val == "MULTI":
-                # English cells with country=MULTI: keep all ground-truth
-                # rows; the caller decides how to aggregate.
-                sub_gt = ground_truth
+        sub_gt = _ground_truth_for_cell(cell, ground_truth)
         if sub_gt.empty:
             log.warning("no ground truth for cell %s — skipping", cell)
             continue

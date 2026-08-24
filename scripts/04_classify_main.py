@@ -1,9 +1,15 @@
-"""04b — Production classification: read images/main/metadata.parquet,
-classify every image with face-detect + CASCo + ITA + MST + consensus,
-write data/interim/main_phenotype.parquet.
+"""04b — Production phenotype table: write data/interim/main_phenotype.parquet
+from images/main/metadata.parquet.
 
-Same logic as 04_classify_images.py but for the main grid (after the
-coauthor shifts have populated images/main/).
+Since D-028 each generation layer runs face-detect + CASCo + ITA + MST +
+consensus *at generation time* and writes the result into its metadata
+shard, so for the main grid this step extracts those columns rather than
+re-deriving them. Re-classifying would recompute identical values from
+the PNGs, and the PNGs are not all still on disk (D-036: Layer-1's
+ephemeral runners never uploaded theirs).
+
+Rows whose metadata lacks the classifier columns are classified from
+their PNG here, which is what happens for any pre-D-028 shard.
 """
 
 from __future__ import annotations
@@ -27,6 +33,22 @@ log = logging.getLogger("04b_classify_main")
 
 META_IN = settings.images_dir / "main" / "metadata.parquet"
 OUT = settings.data_interim / "main_phenotype.parquet"
+
+PHENOTYPE_COLUMNS = (
+    "image_id",
+    "has_face",
+    "n_faces",
+    "ita_value",
+    "ita_label",
+    "ita_perla",
+    "mst_value",
+    "mst_perla",
+    "casco_perla",
+    "perla_consensus",
+    "n_classifiers",
+    "n_concordant",
+    "concordant_2of3",
+)
 
 
 def _classify_one(row: pd.Series, casco_on: bool) -> dict:
@@ -83,12 +105,34 @@ def main() -> int:
         return 1
 
     meta = pd.read_parquet(META_IN)
-    casco_on = casco_available()
-    log.info("Classifying %d images (CASCo=%s)", len(meta), "on" if casco_on else "OFF")
 
-    records = [_classify_one(row, casco_on=casco_on) for _, row in meta.iterrows()]
-    pd.DataFrame(records).to_parquet(OUT, index=False)
-    log.info("Wrote %s (%d rows)", OUT, len(records))
+    missing_cols = set(PHENOTYPE_COLUMNS) - set(meta.columns)
+    if missing_cols:
+        casco_on = casco_available()
+        log.info(
+            "Metadata lacks %s — classifying %d images from disk (CASCo=%s)",
+            sorted(missing_cols), len(meta), "on" if casco_on else "OFF",
+        )
+        pheno = pd.DataFrame(
+            [_classify_one(row, casco_on=casco_on) for _, row in meta.iterrows()],
+        )
+    else:
+        pheno = meta[list(PHENOTYPE_COLUMNS)].copy()
+        n_face = int(pheno["has_face"].sum())
+        log.info(
+            "Extracted inline classifier output for %d images: %d with a face, "
+            "%d of those 2-of-3 concordant.",
+            len(pheno), n_face, int(pheno["concordant_2of3"].sum()),
+        )
+        unclassified = pheno["has_face"] & pheno["perla_consensus"].isna()
+        if unclassified.any():
+            log.warning(
+                "%d rows have a detected face but no perla_consensus — "
+                "they will be dropped from f_alg", int(unclassified.sum()),
+            )
+
+    pheno.to_parquet(OUT, index=False)
+    log.info("Wrote %s (%d rows)", OUT, len(pheno))
     return 0
 
 

@@ -98,6 +98,44 @@ def classify_one(args: tuple[str, str]) -> dict:
     }
 
 
+def _repair_unrecomputable_ita(meta: pd.DataFrame, recomputed: set[str]) -> pd.DataFrame:
+    """Invalidate out-of-range ITA on rows that could not be re-derived.
+
+    Rows whose PNG is gone (D-036) keep whatever the old implementation
+    stored, which for a handful of them is an angle outside Chardon's
+    (-90, 90) — the arctan2 signature. The pixels are unavailable, but
+    MST and CASCo were never affected by that bug, so the row is
+    recoverable: drop the ITA vote and re-take the consensus from the
+    classifiers that remain.
+    """
+    stale = (
+        ~meta["image_id"].isin(recomputed)
+        & meta["ita_value"].notna()
+        & (meta["ita_value"].abs() > 90.0)
+    )
+    if not stale.any():
+        return meta
+    log.info("Repairing %d row(s) with an unrecomputable out-of-range ITA.", int(stale.sum()))
+    for i in meta.index[stale]:
+        mst_p = meta.at[i, "mst_perla"]
+        casco_p = meta.at[i, "casco_perla"]
+        votes = [
+            int(v) for v in (mst_p, casco_p)
+            if v is not None and not pd.isna(v)
+        ]
+        consensus = consensus_perla(votes)
+        meta.at[i, "ita_value"] = np.nan
+        meta.at[i, "ita_label"] = "unknown"
+        meta.at[i, "ita_perla"] = np.nan
+        meta.at[i, "perla_consensus"] = (
+            float(consensus.perla) if consensus.perla is not None else np.nan
+        )
+        meta.at[i, "n_classifiers"] = int(consensus.n_available)
+        meta.at[i, "n_concordant"] = int(consensus.n_concordant)
+        meta.at[i, "concordant_2of3"] = bool(consensus.concordant_2of3)
+    return meta
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--workers", type=int, default=6)
@@ -172,6 +210,7 @@ def main() -> int:
         meta.loc[meta["image_id"].isin(common), col] = (
             meta.loc[meta["image_id"].isin(common), "image_id"].map(new[col]).to_numpy()
         )
+    meta = _repair_unrecomputable_ita(meta, recomputed=set(common))
     meta["has_face"] = meta["has_face"].astype(bool)
     meta["concordant_2of3"] = meta["concordant_2of3"].astype(bool)
 

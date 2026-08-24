@@ -191,9 +191,16 @@ def main() -> int:
     labels = pd.read_parquet(LABELLING_IN)
     log.info("Loaded %d sampled images.", len(labels))
 
-    # Shuffle so rating drift cannot line up with occupation order.
-    order = np.random.default_rng(args.seed).permutation(len(labels))
+    # Shuffle so rating drift cannot line up with occupation order, and
+    # derive the seed from the labeller so the two raters get different
+    # orders. With a shared order, drift over a 300-image session would be
+    # correlated between them and inflate Cohen's κ; independent orders
+    # keep the agreement estimate honest. The CSV joins on image_id, so
+    # the orders need not match.
+    labeller_seed = args.seed + int.from_bytes(args.labeller.upper().encode(), "big")
+    order = np.random.default_rng(labeller_seed).permutation(len(labels))
     labels = labels.iloc[order].reset_index(drop=True)
+    log.info("Presentation order seeded for labeller %s.", args.labeller.upper())
 
     rows: list[dict] = []
     for image_id, rel in zip(labels["image_id"], labels["path"], strict=True):

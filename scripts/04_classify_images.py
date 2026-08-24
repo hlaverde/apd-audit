@@ -95,7 +95,7 @@ def _classify_one(row: pd.Series, *, casco_on: bool) -> dict:
         {
             "ita_value": float(ita),
             "ita_label": ita_to_label(ita),
-            "ita_perla": int(ita_p),
+            "ita_perla": float(ita_p) if ita_p is not None else np.nan,
             "mst_value": int(mst),
             "mst_perla": int(mst_p),
             "casco_perla": int(casco_p) if casco_p is not None else np.nan,

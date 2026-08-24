@@ -46,9 +46,25 @@ class TestITA:
         assert 1 <= ita_to_perla(200) <= 11
         assert 1 <= ita_to_perla(-200) <= 11
 
-    def test_nan_perla_returns_midpoint(self) -> None:
-        # The midpoint for the 11-tone scale is 6.
-        assert ita_to_perla(float("nan")) == 6
+    def test_nan_perla_is_unavailable_not_a_tone(self) -> None:
+        # An unmeasurable patch must not cast a vote in the 2-of-3
+        # consensus; None is the same contract CASCo uses (D-042).
+        assert ita_to_perla(float("nan")) is None
+
+    def test_ita_stays_within_chardon_range(self) -> None:
+        # Chardon's ITA = arctan((L-50)/b) is bounded to (-90, 90). The
+        # earlier arctan2 form wrapped b<0 patches out to ±180 (D-042).
+        rng = np.random.default_rng(0)
+        for _ in range(50):
+            patch = rng.integers(0, 256, size=(24, 24, 3), dtype=np.uint8)
+            ita = compute_ita(patch)
+            assert np.isnan(ita) or -90.0 < ita < 90.0
+
+    def test_non_skin_patch_is_unmeasurable(self) -> None:
+        # A flat blue patch has b* < 0 — not skin, so ITA is unavailable
+        # rather than a plausible-looking angle.
+        blue = np.full((24, 24, 3), (200, 60, 40), dtype=np.uint8)  # BGR
+        assert np.isnan(compute_ita(blue))
 
 
 class TestMST:

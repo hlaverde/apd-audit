@@ -73,3 +73,10 @@ desktop.ini
 !images/main/metadata.parquet
 !images/main/metadata_*.parquet
 
+# Labelling sheets embed the (gitignored) PNG corpus as data URIs and are
+# regenerable from labelling.parquet, which IS committed.
+results/validation/*.html
+
+# Local safety copies taken before a rewrite of the stored classifier data
+images/main/*.pre_*_backup
+

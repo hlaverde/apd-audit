@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from pathlib import Path
 
 import pandas as pd
 
@@ -23,10 +24,37 @@ from apd.validate.sampling import StratificationPlan, sample_for_validation
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("08_validation")
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PANEL_MAIN = settings.data_processed / "panel_main.parquet"
 PANEL_POC = settings.data_processed / "panel_poc.parquet"
 OUT_DIR = settings.results_tables.parent / "validation"
 LABELLING_OUT = OUT_DIR / "labelling.parquet"
+
+
+def _eligible_for_labelling(panel: pd.DataFrame) -> pd.DataFrame:
+    """Drop rows a human cannot actually label.
+
+    Two exclusions, both required for the sample to mean what the
+    protocol says it means:
+
+    * rows outside the main grid — the H5 rows carry synthetic
+      ``marker:<MARKER>:<occupation>`` keys, which would turn 25
+      occupation strata into 57 and put marker variants in a sample
+      meant to validate the classifier on the main grid;
+    * rows whose PNG is no longer on disk (D-036) — 110 of them, which
+      would otherwise appear in the labelling sheet as broken images.
+    """
+    out = panel
+    if "grid" in out.columns:
+        out = out[out["grid"] == "main"]
+    exists = [
+        (Path(p) if Path(p).is_absolute() else PROJECT_ROOT / p).exists()
+        for p in out["path"]
+    ]
+    n_missing = len(exists) - sum(exists)
+    if n_missing:
+        log.info("Excluding %d rows whose PNG is not on disk (D-036).", n_missing)
+    return out[exists]
 
 
 def main() -> int:
@@ -60,8 +88,10 @@ def main() -> int:
 
     panel = pd.read_parquet(panel_path)
     log.info("Sampling for validation from %s (%d rows)", panel_path.name, len(panel))
+    eligible = _eligible_for_labelling(panel)
+    log.info("%d rows eligible for labelling.", len(eligible))
     plan = StratificationPlan(n_per_occupation=args.n_per_occupation, seed=args.seed)
-    labelling = sample_for_validation(panel, plan)
+    labelling = sample_for_validation(eligible, plan)
     labelling.to_parquet(LABELLING_OUT, index=False)
     log.info(
         "Wrote %s — %d rows across %d occupations. "

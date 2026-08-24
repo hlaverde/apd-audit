@@ -29,11 +29,16 @@ ITA_BIN_LABELS: tuple[str, ...] = (
 
 
 def compute_ita(bgr_patch: np.ndarray) -> float:
-    """Return ITA (degrees) for a BGR uint8 face patch.
+    """Return ITA (degrees) for a BGR uint8 face patch, or NaN.
 
     The patch is filtered to mid-luminance pixels (L ∈ (20, 95)) to drop
-    background pixels accidentally included in the bounding box. Returns
-    NaN if no in-range pixel is left.
+    background pixels accidentally included in the bounding box.
+
+    NaN is returned when no in-range pixel is left, and when the retained
+    pixels have a non-positive median b*. Human skin is yellow-positive
+    on b*, so b* ≤ 0 means the patch is dominated by something that is
+    not skin (shadow, cool-cast background, clothing) and its ITA would
+    not be a skin-tone measurement.
     """
     if bgr_patch is None or bgr_patch.size == 0:
         return float("nan")
@@ -49,9 +54,12 @@ def compute_ita(bgr_patch: np.ndarray) -> float:
         return float("nan")
     l_med = float(np.median(luminance[mask]))
     b_med = float(np.median(b_star[mask]))
-    if b_med == 0.0:
-        return 90.0 if l_med >= 50.0 else -90.0
-    return float(np.degrees(np.arctan2(l_med - 50.0, b_med)))
+    if b_med <= 0.0:
+        return float("nan")
+    # Chardon's ITA is arctan((L*-50)/b*), which is bounded to (-90, 90).
+    # arctan2 would instead wrap b* < 0 into quadrants II/III and return
+    # angles beyond ±90 that are not ITA at all (see D-042).
+    return float(np.degrees(np.arctan((l_med - 50.0) / b_med)))
 
 
 def ita_to_label(ita: float) -> str:
@@ -67,18 +75,20 @@ def ita_to_perla(
     ita: float,
     *,
     perla_tones: Sequence[int] = tuple(range(1, 12)),
-) -> int:
-    """Map ITA (continuous) to PERLA ordinal {1, …, 11}.
+) -> int | None:
+    """Map ITA (continuous) to PERLA ordinal {1, …, 11}, or None.
 
     Calibration (linear on the angle scale):
         ITA = +55  → PERLA 1  (very light, lightest tone on the palette)
         ITA = -50  → PERLA 11 (darkest tone)
-    Values outside [-50, 55] saturate to the nearest endpoint. NaN ITA
-    maps to the central tone (6) so that "no skin pixels found" is a
-    conservative neutral rather than a wild outlier.
+    Values outside [-50, 55] saturate to the nearest endpoint.
+
+    NaN ITA returns None — the measurement is *unavailable*, the same
+    contract CASCo uses when it cannot run. Mapping it to a tone instead
+    would feed the 2-of-3 consensus a vote that no classifier cast.
     """
     if np.isnan(ita):
-        return int((perla_tones[0] + perla_tones[-1]) / 2)
+        return None
     n = len(perla_tones)
     # Fraction towards the dark end (PERLA n) — clamped.
     frac = (55.0 - ita) / (55.0 - (-50.0))

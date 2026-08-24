@@ -133,10 +133,41 @@ logged in `results/orphaned_png_rows.csv`:
   seeds 202605140001000-019). Classifier output was recomputed
   correctly; the regenerated PNG just never got imported from Kaggle.
 
-Neither category blocks APD (reads `perla_consensus`, not pixels). They
-only matter if the visual-validation stratified sample happens to pick
-one of these 110 rows — check for that when building the sample
-(`apd.validate.sampling`), and either exclude them or regenerate first.
+Neither category blocks APD (reads `perla_consensus`, not pixels).
+`scripts/08_visual_validation.py` now excludes them from the labelling
+sample automatically (D-044), so this no longer needs watching by hand.
+
+## 4b. Classifier validity — the open question (2026-08-24)
+
+**This is the thing that currently gates the headline numbers.** The
+classifier scores the generated faces ~3 PERLA points darker than the
+LAPOP baseline: algorithmic mean **7.08** vs empirical **4.10** on an
+11-point scale. Verified by eye — a CEO image the classifier calls
+PERLA 7 is a visibly light-skinned man (≈PERLA 2–3).
+
+It is not bad crops (the gap is flat across face sizes) and not the ITA
+bug below (MST 7.29 and CASCo 7.12 agree with each other and outvote
+ITA 5.65). It is the ITA/MST/CASCo → PERLA calibration applied to
+uncalibrated rendered images, against a palette card held in the hand.
+
+Because `D` is a distance between f_alg and f_emp, this offset dominates
+D and therefore APD. **Henry's call (2026-08-24): do the visual
+validation first, then interpret APD levels.** Full write-up in D-043.
+
+What survives regardless: the pigmentocratic *ordering* inside the model
+output is rank-based, so no monotone recalibration touches it —
+Spearman(status, tone) = **−0.573, p = 0.003**. The pre-registered H2
+(gradient of Δ on status) is null, β = +1.19, one-sided p = 0.72,
+because the real labour market has the same ordering, only steeper
+(ρ = −0.933).
+
+Separately, a genuine bug was found and fixed in ITA (D-042): it used
+`arctan2`, which wraps b* < 0 patches beyond ±90° — impossible for
+Chardon's ITA. Stored values ranged −178.5° to +179.5°, and 610 of
+10 663 faces (5.7%) were clamped to PERLA 1 or 11, the extremes.
+`scripts/reclassify_metadata.py` rewrites the stored columns from the
+PNGs; it moves ~2.5% of consensus values and does not close the gap
+above.
 
 ## 5. Git state — unified, single branch (as of 2026-08-24)
 

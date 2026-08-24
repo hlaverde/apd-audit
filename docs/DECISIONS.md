@@ -1,5 +1,98 @@
 # Decisions log
 
+## 2026-08-24 - Classifier validity: fix ITA, and validate before interpreting APD levels
+
+### D-043: The classifier reads ~3 PERLA points darker than LAPOP, so visual validation precedes the APD headline
+
+**Finding.** Over the main grid's 10 663 detected faces the algorithmic
+`perla_consensus` averages **7.08**; the respondent-weighted LAPOP
+baseline averages **4.10**. A ~3-point gap on an 11-point scale, with
+the two distributions barely overlapping (algorithmic mass sits on
+PERLA 7–8, empirical on 3–4).
+
+**This is a measurement-scale problem, not a result.** Checked by eye:
+`images/main/CEO/seed_202605140023000.png`, which the classifier scores
+PERLA 7, is a visibly light-skinned man — PERLA 2–3 on the palette. The
+gap is also flat across face sizes (mean PERLA 6.58 to 7.31 from the
+smallest to the largest face-size band, Spearman ρ = −0.06, p = 0.28),
+so it is not an artefact of bad crops or distant faces; and restricting
+the patch to YCrCb skin pixels moves the mean only from 6.37 to 6.04.
+It is the ITA/MST/CASCo → PERLA calibration itself, applied to
+uncalibrated rendered sRGB images, versus a palette held in the hand by
+an interviewer.
+
+**Consequence.** `D` is a Wasserstein distance between f_alg and f_emp,
+so this offset dominates it, and therefore dominates APD. An APD near 3
+would mostly be measuring instrument incomparability rather than
+pigmentocratic bias.
+
+**Decision (Henry, 2026-08-24).** Run the visual validation *before*
+publishing any APD level. 300 human PERLA ratings against the physical
+palette card give the offset directly, and with it either a
+recalibration or a quantified limitation. `scripts/07_estimate_all.py`
+stays unwired for H4/H5 until then.
+
+**What is unaffected.** The pigmentocratic *ordering* inside the model
+output is rank-based and survives any monotone recalibration:
+Spearman(status weight, mean algorithmic tone) = **−0.573, p = 0.0028**
+— CEO 6.66 and doctor 6.79 at the light end, farmer 7.86 and street
+vendor 7.68 at the dark end. The empirical ordering is steeper
+(ρ = −0.933), which is why the *difference* carries no status gradient:
+pooled H2 on the main grid gives β = +1.19 (SE 2.03, one-sided
+p = 0.72, R² = 0.001).
+
+### D-042: ITA is `arctan((L*-50)/b*)`, and an unmeasurable patch votes for nothing
+
+**Decision.** `compute_ita` uses `arctan`, not `arctan2`, and returns
+NaN when the retained pixels have median b* ≤ 0. `ita_to_perla` returns
+`None` for NaN instead of the mid-scale tone 6.
+`scripts/reclassify_metadata.py` re-runs the classifiers over
+`images/main/` and rewrites the stored columns.
+
+**Rationale.** Chardon's ITA is bounded to (−90°, +90°). `arctan2`
+wraps patches with b* < 0 into quadrants II/III and returns angles out
+to ±180°, which are not ITA. The stored data ranged **−178.5° to
++179.5°**, and 610 of 10 663 faces (5.7%) carried an out-of-range
+value; `ita_to_perla` then clamped those to PERLA **1 or 11** — the
+extremes of the scale — and 947 rows had `ita_label = "unknown"`.
+Confirmed on the images: every out-of-range row has b* < 0, and where
+b* > 0 the two formulas agree exactly.
+
+Human skin is yellow-positive on b*, so b* ≤ 0 means the patch is not
+skin (shadow, cool-cast background, clothing). Switching to `arctan`
+alone would turn an obviously-invalid number into a plausible-looking
+one, so those patches are reported as unmeasurable instead. Mapping an
+unmeasurable patch to tone 6 likewise fed the 2-of-3 consensus a vote
+no classifier cast; `None` is the contract CASCo already uses.
+
+**Effect.** On a 200-image dry run, `perla_consensus` changed for 2.5%
+of rows, face detection was unchanged, and no ITA value fell outside
+Chardon's range. The fix does **not** explain the offset in D-043 —
+that is driven by MST (7.29) and CASCo (7.12), which agree with each
+other and outvote ITA (5.65).
+
+### D-044: The labelling sheet shows the image and a sequence number, nothing else
+
+**Decision.** `scripts/make_labelling_sheet.py` builds a self-contained
+HTML sheet with each sampled image embedded as a downscaled JPEG, a
+1–11 radio row, and a CSV export. The caption is `Image 001`, not the
+`image_id`. `scripts/08_visual_validation.py` samples only the main
+grid and only rows whose PNG is on disk.
+
+**Rationale.** `image_id` is
+`{model}__{occupation}__{seed}` — printing it would have shown the
+labeller the model and the occupation next to every image, which is
+exactly what the blind protocol withholds (caught by a leak check on
+the generated HTML: "pollinations", "CEO" and the SD model names were
+all rendered on the page). Presentation order is shuffled under a fixed
+seed so rating drift cannot line up with occupation. The sheet draws no
+on-screen PERLA swatches on purpose: LAPOP's `colorr` was recorded
+against the physical palette card, and an approximated on-screen
+palette would be a second, differently-calibrated instrument — the very
+problem D-043 is about. Without the grid filter the sampler would have
+built 57 strata instead of 25, because the H5 rows carry
+`marker:<MARKER>:<occupation>` keys.
+
 ## 2026-08-24 - Wire the production analysis pipeline to the real 14 720-image grid
 
 ### D-038: Tabulate the main, robustness and H5 grids separately

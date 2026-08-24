@@ -114,42 +114,29 @@ Key engineering findings along the way (full detail in
   hash, where the source is a static file) in
   `docs/INDIGENOUS_PROMPT_SOURCES.md`. The slice is now 800/800.
 
-## 4. Known issue — most PNG files aren't reachable from this machine
+## 4. PNG-path issue — RESOLVED 2026-08-24 (was 77%, now 0.75%)
 
-**This does not block APD computation** (which only reads
-`perla_consensus` etc. from the parquet), but it blocks anything that
-needs the actual pixels (visual validation, manuscript figure examples).
+**Fixed, see D-036.** The 77% figure was almost entirely a stale-string
+bug, not missing data: `scripts/import_cloud_zip.py` copies PNGs into
+the canonical `images/main/<occupation>/seed_<seed>.png` layout but
+never rewrote the `path` column away from the Kaggle/Colab runtime's
+absolute path. `scripts/fix_metadata_png_paths.py` rewrote 11 180 of
+11 290 broken paths to the canonical location (verified present on
+disk first, nothing guessed).
 
-```
-11 290 / 14 720 rows (77%) have a `path` column pointing to a file that
-does not exist on this Windows machine.
-```
+**What's actually, permanently missing: 110 / 14 720 rows (0.75%)**,
+logged in `results/orphaned_png_rows.csv`:
+* 90 rows — Layer-1 GitHub Actions FLUX cells. Expected, permanent
+  (ephemeral runner, no artifact upload; classifier output is intact,
+  only pixels are gone).
+* 20 rows — the D-029/D-030 mislabelling bug's cells (CEO × en × SD1.5,
+  seeds 202605140001000-019). Classifier output was recomputed
+  correctly; the regenerated PNG just never got imported from Kaggle.
 
-Breakdown: all `backend="local"` rows (11 200 — everything generated via
-`diffusers` on Kaggle/Colab GPU) plus 90 `backend="pollinations"` rows
-(Layer-1 GitHub Actions images, which — per §3 — never had a
-locally-reachable PNG to begin with; expected and permanent).
-
-For the 11 200 Kaggle/Colab rows: the PNGs likely **do exist somewhere**
-(either still in an un-imported ZIP, or imported but under a different
-local path than what's recorded in the `path` column — the cloud
-runtime's absolute path may not have been rewritten on import). This
-needs investigation before trusting it's unrecoverable:
-1. Check whether `images/main/<occupation>/seed_<seed>.png` exists at
-   the *canonical* layout path for a sample of these rows (the
-   generators all write there — `scripts/continuous_worker.py`'s
-   `_safe_occupation_dirname` convention) even though the `path` column
-   says something else.
-2. If yes: this is a metadata bug (stale `path` strings), fixable by
-   rewriting the column from `image_id` — cheap, no regeneration needed.
-3. If the PNGs are genuinely gone: decide whether visual validation can
-   proceed on the ~23% subset with reachable PNGs (still likely >300
-   images, i.e. probably still enough for the pre-registered sample),
-   or whether specific cells need re-generating.
-
-**Nobody has actually diagnosed which of these is true yet.** This is
-the first thing a new session should check before doing anything else
-with images.
+Neither category blocks APD (reads `perla_consensus`, not pixels). They
+only matter if the visual-validation stratified sample happens to pick
+one of these 110 rows — check for that when building the sample
+(`apd.validate.sampling`), and either exclude them or regenerate first.
 
 ## 5. Git state — corrected diagnosis (2026-08-24, second look same day)
 
@@ -240,12 +227,18 @@ Generation was the expensive, slow part. It's done, and it's safely on
 GitHub (§5). Everything below is analysis and writing — much faster,
 and none of it is a data-loss risk anymore.
 
-1. **Decide how to unify `cloud-generation-20260602` and `main`** (§5)
-   — not yet diagnosed in detail (does Layer 1's FLUX-only work on
-   `main` overlap with what's already in the 14 720-row grid, or add
-   anything new?). Do that diagnosis before merging either direction.
-2. **Diagnose the PNG-path issue** (§4) — blocks visual validation and
-   figure generation; does not block APD.
+1. **Unify `cloud-generation-20260602` and `main`** (§5) — diagnosed
+   2026-08-24: `origin/main`'s 1 743 rows are a *strict subset* of the
+   14 720 already on `cloud-generation-20260602` (0 exclusive rows),
+   and the GH Actions workflow file is byte-identical on both branches.
+   No data conflict. Plan: `git merge main -s ours` on
+   `cloud-generation-20260602` (preserves the 88-commit audit trail as
+   ancestors without touching the tree), then fast-forward `main` to
+   it, then push `main` — pending Henry's go-ahead on that push (same
+   "confirm before touching the shared/public branch" reasoning as the
+   earlier safety-net push).
+2. ~~Diagnose the PNG-path issue~~ — **done**, see §4. 110/14 720 rows
+   (0.75%) are genuinely unrecoverable; noted for visual validation.
 3. **Run the production analysis pipeline** — has never been run on the
    full grid. Only `results/tables/apd_poc.csv` exists, and it's the
    30-image POC from 2026-05-15. Need: build the production panel
@@ -255,9 +248,9 @@ and none of it is a data-loss risk anymore.
    run H1–H5 estimation (`src/apd/estimate/`) against real data.
 4. **Visual validation** — 300-image stratified sample, two labellers
    blind to algorithmic output, Cohen's κ ≥ 0.6 threshold
-   (`src/apd/validate/`, `scripts/08_visual_validation.py`). Blocked on
-   #2 (need reachable PNGs for whichever images the stratified sample
-   selects).
+   (`src/apd/validate/`, `scripts/08_visual_validation.py`). Exclude
+   the 110 rows in `results/orphaned_png_rows.csv` from the sampling
+   pool (see D-036).
 5. **Manuscript** — Results section can only be written after #3.
 
 ## 7. Session log (chronological, so you know what already happened)

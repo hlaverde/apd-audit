@@ -138,91 +138,41 @@ only matter if the visual-validation stratified sample happens to pick
 one of these 110 rows — check for that when building the sample
 (`apd.validate.sampling`), and either exclude them or regenerate first.
 
-## 5. Git state — corrected diagnosis (2026-08-24, second look same day)
+## 5. Git state — unified, single branch (as of 2026-08-24)
 
-**Earlier today this section said "diverged 88 vs 2 commits, needs
-careful reconciliation." That first diagnosis was comparing the wrong
-things.** Corrected version below — read this one.
+`main` and `cloud-generation-20260602` are no longer divergent. Both
+point at the same commit (`779bbb6`), verified directly against GitHub
+(not just locally): `origin/main`'s `images/main/metadata.parquet` has
+14 720 rows / 14 720 unique `image_id`, matching
+`origin/cloud-generation-20260602` exactly. The GitHub Actions cron
+(which triggers off `main`) and everything else in this repo are now
+on the same history.
 
-The key fact: **this repo has two branches that never merged into each
-other, doing unrelated work.**
+**How it got there (brief; full detail in D-036/D-037):** this repo
+used to have two branches doing unrelated work — `main` (only Layer 1's
+GitHub-Actions FLUX auto-commits) and `cloud-generation-20260602`
+(everything else: SD-family generation, indigenous-language expansion,
+all the analysis code). Three months of generation work (91 → 14 720
+rows) also turned out to be sitting fully **uncommitted** in the local
+working tree the day this was discovered. Both problems were closed
+the same day, 2026-08-24: the uncommitted work was committed and
+pushed to `cloud-generation-20260602` (verified: 14 720 rows on
+GitHub), then the branch split was closed with `git merge main -s
+ours` (main's 88 commits recorded as ancestors, `cloud-generation-20260602`'s
+tree untouched — safe because `main`'s 1 743 rows were a confirmed
+strict subset, 0 exclusive `image_id`s), then `main` was fast-forwarded
+to that merge commit and pushed to `origin/main` with Henry's explicit
+go-ahead. Verified independently on GitHub post-push (see above).
 
-```
-Active branch here:  cloud-generation-20260602
-  local HEAD before today's commits: bf6c9e3 (2026-06-02)
-  its own upstream:    origin/cloud-generation-20260602
-  divergence from THAT upstream: essentially none (was "ahead 1",
-    i.e. only this session's own new commits — not a real conflict)
-  BUT the last commit actually pushed to that upstream has
-    images/main/metadata.parquet at only 91 ROWS (the very first
-    Kaggle smoke test, 2026-06-02). Everything generated since then —
-    effectively the entire 14 720-row grid — was sitting UNCOMMITTED
-    in the working tree until today (see the commit made in this
-    session, "feat: consolidate ~3 months of production generation
-    work (91 -> 14720 rows)").
+There is no longer a standing git decision to make here. Going
+forward, both branch names point at the same history; new work should
+keep happening on `cloud-generation-20260602` (or `main` — they're
+equivalent now) and the GH Actions cron continues to auto-commit to
+`main` as before.
 
-Separate, local-only branch: main
-  86-88 commits BEHIND origin/main (stale — nobody has run `git pull`
-    on this local `main` branch since 2026-06-02; this is harmless,
-    just means the local main ref is old)
-  origin/main has ~88 "shift: GH Actions Layer-1 worker" commits —
-    the GitHub Actions cron workflow, which pushes directly to
-    origin/main, not to cloud-generation-20260602. It has been
-    generating FLUX-via-Pollinations cells independently the whole
-    time, on a branch that has NOTHING ELSE merged into it (no SD-
-    family images, no indigenous-language expansion, none of the
-    Kaggle work — just whatever FLUX cells Layer 1 found pending on
-    each 6-hourly run).
-
-No open or merged PR exists between these two branches
-(`gh pr list --state all` returns empty). They have simply never been
-reconciled.
-```
-
-**What was actually at risk, and what's been done about it (today):**
-
-The real risk was not "conflicting data between two branches" — it was
-that **three months of generation work existed in exactly one place**
-(this Windows machine's working tree, uncommitted). Fixed: committed
-locally to `cloud-generation-20260602` (14 720-row metadata + every
-supporting script, cost-log entry, indigenous-language source
-register, Kaggle run provenance), then **pushed** — Henry confirmed
-explicitly. Verified after push by extracting
-`origin/cloud-generation-20260602:images/main/metadata.parquet`
-directly and re-counting: **14 720 rows, 14 720 unique `image_id`, on
-GitHub, independent of this machine.** Push was `bf6c9e3..05a64d9`
-(fast-forward, as expected — nothing else had touched that remote
-branch since 2026-06-02).
-
-**The single-machine-failure risk is closed.** What's left is not
-urgent in the same way — it's normal project-hygiene and analysis work.
-
-**What still needs a deliberate decision:**
-
-1. ~~Push `cloud-generation-20260602`~~ — **done**, see above.
-2. ~~Decide what to do about `main`~~ — **diagnosed and merged,
-   2026-08-24 (D-037).** `origin/main`'s 1 743 rows were confirmed a
-   *strict subset* of `cloud-generation-20260602`'s 14 720 (0 exclusive
-   `image_id`s), and the two branches' GH Actions workflow files were
-   byte-identical, so there was nothing to reconcile — only history to
-   preserve. Executed: `git merge main -s ours` on
-   `cloud-generation-20260602` (records `main`'s 88 commits as
-   ancestors, tree untouched), verified post-merge (still 14 720 rows /
-   14 720 unique `image_id`, tests still 248 passed / 1 skipped, `main`
-   confirmed a true ancestor via `git merge-base --is-ancestor`). **Not
-   yet done: fast-forwarding local `main` to this merge commit and
-   pushing it to `origin/main`** — that push needs Henry's explicit
-   go-ahead first (shared/public default branch; same rule as the
-   earlier safety-net push). See D-037 for the full writeup.
-3. Once `main` is fast-forwarded and pushed, this section should be
-   shortened to a permanent one-branch description — it's long right
-   now because it's a live incident writeup.
-
-Tests are healthy on the current (still working-tree-dirty in other
-respects, e.g. `.Rhistory`, `kaggle_runner/__pycache__/`, which are
-deliberately not tracked) tree: **248 passed, 1 skipped**
-(`uv run pytest -q`, last run 2026-08-24, re-confirmed after the D-037
-merge). Skip is `test_context_clip.py` (needs `ml` extras, expected).
+Tests are healthy: **248 passed, 1 skipped** (`uv run pytest -q`, last
+run 2026-08-24, after the D-037 merge). Skip is `test_context_clip.py`
+(needs `ml` extras, expected).
 
 ## 6. What's actually left (in priority order)
 
@@ -230,10 +180,10 @@ Generation was the expensive, slow part. It's done, and it's safely on
 GitHub (§5). Everything below is analysis and writing — much faster,
 and none of it is a data-loss risk anymore.
 
-1. ~~Unify `cloud-generation-20260602` and `main`~~ — **merged locally**,
-   see §5 and D-037. Only remaining step: fast-forward local `main` and
-   push it to `origin/main` — **needs Henry's explicit go-ahead**
-   before that push happens (shared/public default branch).
+1. ~~Unify `cloud-generation-20260602` and `main`~~ — **done**, see §5
+   and D-037. `main` pushed to `origin/main` with Henry's confirmation,
+   verified independently on GitHub (14 720 rows). No git decision left
+   here.
 2. ~~Diagnose the PNG-path issue~~ — **done**, see §4. 110/14 720 rows
    (0.75%) are genuinely unrecoverable; noted for visual validation.
 3. **Run the production analysis pipeline** — has never been run on the
@@ -290,8 +240,11 @@ and none of it is a data-loss risk anymore.
   rows repaired by string rewrite, 110 genuinely orphaned and logged.
   Then diagnosed and merged the `main`/`cloud-generation-20260602`
   branch split (D-037, §5) — `git merge main -s ours`, verified clean
-  (row count and tests unchanged). Still open: push the fast-forwarded
-  `main` to `origin/main` (needs Henry's go-ahead, not yet asked).
+  (row count and tests unchanged), fast-forwarded local `main`, and
+  **pushed `main` to `origin/main` with Henry's explicit confirmation**
+  — verified independently on GitHub afterward (14 720 rows, 14 720
+  unique `image_id`). The repo is a single unified history again; no
+  outstanding git decisions.
 
 ## 8. If you're an AI assistant starting fresh here
 

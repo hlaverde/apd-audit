@@ -151,54 +151,87 @@ needs investigation before trusting it's unrecoverable:
 the first thing a new session should check before doing anything else
 with images.
 
-## 5. Git state — diverged, not yet reconciled
+## 5. Git state — corrected diagnosis (2026-08-24, second look same day)
+
+**Earlier today this section said "diverged 88 vs 2 commits, needs
+careful reconciliation." That first diagnosis was comparing the wrong
+things.** Corrected version below — read this one.
+
+The key fact: **this repo has two branches that never merged into each
+other, doing unrelated work.**
 
 ```
-Local HEAD:   bf6c9e3 (2026-06-02) — 2 commits origin doesn't have
-Origin/main:  88 commits ahead of local HEAD (mostly Layer-1 GH Actions
-              auto-commits, pushed directly, never pulled here)
-Working tree: dirty — images/main/metadata.parquet and several docs
-              modified locally but uncommitted; ~20 old shard parquets
-              show as deleted (already merged into the canonical file
-              locally, just not committed)
+Active branch here:  cloud-generation-20260602
+  local HEAD before today's commits: bf6c9e3 (2026-06-02)
+  its own upstream:    origin/cloud-generation-20260602
+  divergence from THAT upstream: essentially none (was "ahead 1",
+    i.e. only this session's own new commits — not a real conflict)
+  BUT the last commit actually pushed to that upstream has
+    images/main/metadata.parquet at only 91 ROWS (the very first
+    Kaggle smoke test, 2026-06-02). Everything generated since then —
+    effectively the entire 14 720-row grid — was sitting UNCOMMITTED
+    in the working tree until today (see the commit made in this
+    session, "feat: consolidate ~3 months of production generation
+    work (91 -> 14720 rows)").
+
+Separate, local-only branch: main
+  86-88 commits BEHIND origin/main (stale — nobody has run `git pull`
+    on this local `main` branch since 2026-06-02; this is harmless,
+    just means the local main ref is old)
+  origin/main has ~88 "shift: GH Actions Layer-1 worker" commits —
+    the GitHub Actions cron workflow, which pushes directly to
+    origin/main, not to cloud-generation-20260602. It has been
+    generating FLUX-via-Pollinations cells independently the whole
+    time, on a branch that has NOTHING ELSE merged into it (no SD-
+    family images, no indigenous-language expansion, none of the
+    Kaggle work — just whatever FLUX cells Layer 1 found pending on
+    each 6-hourly run).
+
+No open or merged PR exists between these two branches
+(`gh pr list --state all` returns empty). They have simply never been
+reconciled.
 ```
 
-This has been true and **unchanged** since at least 2026-07-27 (same 88/2
-split both times it's been checked) — consistent with Layer 1 having
-run out of pending FLUX work once the grid hit 100%, so it stopped
-producing new commits.
+**What was actually at risk, and what's been done about it (today):**
 
-**Why this matters:** the 96%→100% generation progress, the D-034/D-035
-indigenous-language expansion, and the current 14 720-row
-`metadata.parquet` all exist **only in this local working tree**. None
-of it is committed, let alone pushed. If this machine were lost right
-now, that work would be gone. Reconciling and pushing is the single
-highest-value next action, but:
+The real risk was not "conflicting data between two branches" — it was
+that **three months of generation work existed in exactly one place**
+(this Windows machine's working tree, uncommitted). That's now fixed:
+a commit was made on `cloud-generation-20260602` capturing the full
+14 720-row metadata, every supporting script, every cost-log entry, the
+indigenous-language source register, and the Kaggle run provenance.
+**That commit exists locally but has NOT been pushed yet** — pushing
+is a network/GitHub action, so it's waiting on an explicit go-ahead
+rather than being done automatically. It would be a plain fast-forward
+push to `origin/cloud-generation-20260602` (no conflict, since nothing
+else has touched that remote branch since 2026-06-02).
 
-**Do not just `git pull` or force-push.** Origin's 88 commits and this
-local tree's uncommitted state may both contain real, non-overlapping
-generation records (Layer 1's disjoint hash-shard vs. Layer 2/3's
-work). A blind pull/merge or a force-push in either direction risks
-silently dropping one side's images. The safe path, consistent with
-how this project already handles multi-source merges:
-1. `git fetch origin` (safe, read-only).
-2. Extract origin's `images/main/metadata.parquet` to a temp file via
-   `git show origin/main:images/main/metadata.parquet > /tmp/origin_meta.parquet`
-   (does not touch the working tree) and compare row counts / image_id
-   sets against the local 14 720-row file.
-3. If disjoint or origin is a subset: merge via the existing
-   `scripts/merge_worker_shards.py` logic (it already dedupes by
-   `image_id`), not a manual `git merge` on the binary parquet.
-4. Only after confirming no data loss either way: commit the
-   reconciled state, resolve the 2 local-only commits (rebase or
-   cherry-pick — they're `feat: add cloud generation runners` and
-   `fix: make kaggle runner output zip only`, both legitimate,
-   2026-06-02, unrelated to the metadata content), and push.
-5. Update `docs/DECISIONS.md` with a dated entry recording that the
-   reconciliation happened and how.
+**What still needs a deliberate decision (not done automatically):**
 
-Tests are healthy on the current dirty working tree: **248 passed, 1
-skipped** (`uv run pytest -q`, last run 2026-08-24). Skip is
+1. **Push `cloud-generation-20260602`** to its own remote — safe,
+   fast-forward, zero risk of overwriting anyone else's work. This is
+   the single highest-value pending action; ask Henry before doing it
+   (pushing is a "confirm first" action per house rules even when it's
+   this safe).
+2. **Decide what to do about `main`.** Two independent branches with
+   real, non-overlapping content (Layer 1's FLUX-only commits on
+   `main`; everything else on `cloud-generation-20260602`) is not a
+   stable end state for a repo whose README/OSF registration describe
+   a single canonical pipeline. Options: merge `cloud-generation-20260602`
+   into `main` (making `cloud-generation-20260602`'s 14 720-row
+   metadata the base, then re-applying/discarding Layer 1's FLUX-only
+   commits — check whether Layer 1's cells are already a subset of the
+   14 720, which is likely), or open a PR, or repoint the GH Actions
+   workflow at `cloud-generation-20260602` instead of `main` going
+   forward. Not diagnosed in detail yet — do that before touching it.
+3. Once (1) and (2) are settled, `docs/PROJECT_STATUS.md` should be
+   updated again to say so (and this section shortened — it's long
+   because it's a live incident writeup, not a permanent description).
+
+Tests are healthy on the current (still working-tree-dirty in other
+respects, e.g. `.Rhistory`, `kaggle_runner/__pycache__/`, which are
+deliberately not tracked) tree: **248 passed, 1 skipped**
+(`uv run pytest -q`, last run 2026-08-24). Skip is
 `test_context_clip.py` (needs `ml` extras, expected).
 
 ## 6. What's actually left (in priority order)
@@ -206,22 +239,28 @@ skipped** (`uv run pytest -q`, last run 2026-08-24). Skip is
 Generation was the expensive, slow part. It's done. Everything below is
 analysis and writing — much faster.
 
-1. **Reconcile git** (§5) — blocks safely persisting all the above.
-2. **Diagnose the PNG-path issue** (§4) — blocks visual validation and
+1. **Push the safety-net commit** (§5) — currently sitting local-only
+   on `cloud-generation-20260602`. Fast-forward, zero risk, just needs
+   Henry's go-ahead since pushing is a confirm-first action.
+2. **Decide how to unify `cloud-generation-20260602` and `main`** (§5)
+   — not yet diagnosed in detail (does Layer 1's FLUX-only work on
+   `main` overlap with what's already in the 14 720-row grid, or add
+   anything new?). Do that diagnosis before merging either direction.
+3. **Diagnose the PNG-path issue** (§4) — blocks visual validation and
    figure generation; does not block APD.
-3. **Run the production analysis pipeline** — has never been run on the
+4. **Run the production analysis pipeline** — has never been run on the
    full grid. Only `results/tables/apd_poc.csv` exists, and it's the
    30-image POC from 2026-05-15. Need: build the production panel
    (`scripts/05_build_panel_main.py` or equivalent — check it still
    matches the current 24-column metadata schema from D-028), compute
    APD with real bootstrap CIs per (country, language, model) cell,
    run H1–H5 estimation (`src/apd/estimate/`) against real data.
-4. **Visual validation** — 300-image stratified sample, two labellers
+5. **Visual validation** — 300-image stratified sample, two labellers
    blind to algorithmic output, Cohen's κ ≥ 0.6 threshold
    (`src/apd/validate/`, `scripts/08_visual_validation.py`). Blocked on
-   #2 (need reachable PNGs for whichever images the stratified sample
+   #3 (need reachable PNGs for whichever images the stratified sample
    selects).
-5. **Manuscript** — Results section can only be written after #3.
+6. **Manuscript** — Results section can only be written after #4.
 
 ## 7. Session log (chronological, so you know what already happened)
 
@@ -249,9 +288,15 @@ analysis and writing — much faster.
 - **08-13, 08-18:** Further indigenous-language source research
   (D-034, D-035) closed the remaining occupations. Grid reaches
   14 720/14 720.
-- **08-24 (today):** This file written. Status verified by direct
-  inspection, not memory. Nothing else changed today except this
-  documentation.
+- **08-24 (today):** This file written, verified by direct inspection
+  (not memory). First pass mis-diagnosed the git situation as a risky
+  88-vs-2-commit divergence on `main`; on closer inspection it's a
+  separate branch (`cloud-generation-20260602`) whose own upstream was
+  fine, but which had 3 months of generation work (91 → 14 720 rows)
+  sitting fully uncommitted. That work is now committed locally to
+  `cloud-generation-20260602` (not yet pushed — needs Henry's
+  go-ahead). §5 has the corrected diagnosis; treat the version in this
+  section as the summary and §5 as the detail.
 
 ## 8. If you're an AI assistant starting fresh here
 
